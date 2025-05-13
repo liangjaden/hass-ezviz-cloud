@@ -3,7 +3,6 @@ import logging
 import os
 from pathlib import Path
 
-from homeassistant.components.frontend import async_register_built_in_panel
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
@@ -46,18 +45,18 @@ async def async_setup_cards(hass: HomeAssistant):
                         "res_type": "custom-card",
                     }
                 )
-                _LOGGER.info("Registered EZVIZ camera card as a Lovelace resource")
+                _LOGGER.info("已注册萤石摄像头卡片作为Lovelace资源")
             except Exception as e:
-                _LOGGER.warning("Could not register EZVIZ camera card: %s", e)
+                _LOGGER.warning("无法注册萤石摄像头卡片: %s", e)
                 _LOGGER.info(
-                    "You'll need to manually add '/local/%s/ezviz-camera-card.js' "
-                    "as a Lovelace resource in your UI settings", DOMAIN
+                    "您需要手动添加'/local/%s/ezviz-camera-card.js' "
+                    "作为Lovelace资源在您的UI设置中", DOMAIN
                 )
     except (ImportError, AttributeError):
         _LOGGER.info(
-            "Lovelace integration not found or doesn't support auto registration. "
-            "You'll need to manually add '/local/%s/ezviz-camera-card.js' "
-            "as a Lovelace resource in your UI settings", DOMAIN
+            "未找到Lovelace集成或不支持自动注册。"
+            "您需要手动添加'/local/%s/ezviz-camera-card.js' "
+            "作为Lovelace资源在您的UI设置中", DOMAIN
         )
 
     return True
@@ -139,7 +138,7 @@ class EzvizCameraCard extends HTMLElement {
     if (config.title) {
       this.cardHeader.textContent = config.title;
     } else {
-      this.cardHeader.textContent = 'EZVIZ Camera';
+      this.cardHeader.textContent = '萤石摄像头';
     }
     
     // Update camera image
@@ -147,7 +146,7 @@ class EzvizCameraCard extends HTMLElement {
       const cameraState = this.hass.states[config.camera_entity];
       if (cameraState) {
         this.cameraImage.src = `/api/camera_proxy/${config.camera_entity}?token=${cameraState.attributes.access_token || ''}`;
-        this.cameraImage.alt = cameraState.attributes.friendly_name || 'Camera';
+        this.cameraImage.alt = cameraState.attributes.friendly_name || '摄像头';
       }
     }
     
@@ -157,7 +156,7 @@ class EzvizCameraCard extends HTMLElement {
       if (switchState) {
         const isOn = switchState.state === 'on';
         this.privacyToggle.icon = isOn ? 'mdi:eye-off' : 'mdi:eye';
-        this.privacyStatus.textContent = isOn ? 'Privacy Mode: On' : 'Privacy Mode: Off';
+        this.privacyStatus.textContent = isOn ? '隐私模式: 开启' : '隐私模式: 关闭';
         this.privacyStatus.className = 'privacy-status ' + (isOn ? 'privacy-on' : 'privacy-off');
       }
     }
@@ -165,10 +164,10 @@ class EzvizCameraCard extends HTMLElement {
   
   setConfig(config) {
     if (!config.camera_entity) {
-      throw new Error('You need to define a camera entity');
+      throw new Error('您需要定义摄像头实体');
     }
     if (!config.switch_entity) {
-      throw new Error('You need to define a switch entity for privacy control');
+      throw new Error('您需要定义隐私控制开关实体');
     }
     
     this.config = config;
@@ -182,7 +181,7 @@ class EzvizCameraCard extends HTMLElement {
     return {
       camera_entity: "",
       switch_entity: "",
-      title: "EZVIZ Camera"
+      title: "萤石摄像头"
     };
   }
   
@@ -199,7 +198,7 @@ customElements.define('ezviz-camera-card', EzvizCameraCard);
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "ezviz-camera-card",
-  name: "EZVIZ Camera Card",
-  description: "A card for EZVIZ cameras with privacy control"
+  name: "萤石摄像头卡片",
+  description: "一个带有隐私控制的萤石摄像头卡片"
 });
 """

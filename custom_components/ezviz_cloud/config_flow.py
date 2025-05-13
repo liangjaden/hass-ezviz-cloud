@@ -27,16 +27,9 @@ from .const import (
     CONF_UPDATE_INTERVAL,
     DEFAULT_UPDATE_INTERVAL,
 )
+from .api import EzvizCloudChinaApi, EzvizCloudChinaApiError
 
 _LOGGER = logging.getLogger(__name__)
-
-# 将导入放在顶部，用try-except处理，这样在导入时会更明确地捕获错误
-try:
-    from pyEzvizApi import EzvizApi
-    PYEZVIZ_IMPORT_ERROR = None
-except ImportError as err:
-    PYEZVIZ_IMPORT_ERROR = err
-    _LOGGER.error("Failed to import pyEzvizApi: %s", err)
 
 
 class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -56,20 +49,6 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
         errors = {}
 
-        # 先检查是否存在导入错误
-        if PYEZVIZ_IMPORT_ERROR is not None:
-            errors["base"] = "import_error"
-            return self.async_show_form(
-                step_id="user",
-                data_schema=vol.Schema(
-                    {
-                        vol.Required(CONF_APP_KEY): str,
-                        vol.Required(CONF_APP_SECRET): str,
-                    }
-                ),
-                errors=errors,
-            )
-
         if user_input is not None:
             app_key = user_input[CONF_APP_KEY]
             app_secret = user_input[CONF_APP_SECRET]
@@ -77,15 +56,15 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
             session = aiohttp_client.async_get_clientsession(self.hass)
 
             try:
-                # 使用新的pyEzvizApi库
-                client = EzvizApi(
-                    apiKey=app_key,
-                    apiSecret=app_secret,
+                # 使用中国版萤石云API
+                client = EzvizCloudChinaApi(
+                    app_key=app_key,
+                    app_secret=app_secret,
                     session=session
                 )
 
-                # 测试连接 - 尝试获取令牌
-                await self.hass.async_add_executor_job(client.get_token)
+                # 测试连接
+                await client.get_token()
 
                 # 登录成功，保存数据并进入下一步
                 self.app_key = app_key
@@ -94,9 +73,12 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
 
                 return await self.async_step_webhook()
 
-            except Exception as error:
+            except EzvizCloudChinaApiError as error:
                 _LOGGER.error("Failed to connect to EZVIZ: %s", error)
                 errors["base"] = "cannot_connect"
+            except Exception as error:
+                _LOGGER.exception("Unexpected error: %s", error)
+                errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="user",
@@ -134,11 +116,11 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
         device_options = {}
 
         try:
-            # 使用新的pyEzvizApi获取设备列表
-            devices = await self.hass.async_add_executor_job(self.client.get_devices_infos)
+            # 获取设备列表
+            devices = await self.client.get_devices()
 
             for device in devices:
-                device_sn = device.get("deviceSerial")  # 注意字段可能变化
+                device_sn = device.get("deviceSerial")
                 device_name = device.get("deviceName", device_sn)
                 if device_sn:
                     device_options[device_sn] = f"{device_name} ({device_sn})"
@@ -146,9 +128,12 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
             if not device_options:
                 errors["base"] = "no_devices"
 
-        except Exception as error:
+        except EzvizCloudChinaApiError as error:
             _LOGGER.error("Failed to get EZVIZ devices: %s", error)
             errors["base"] = "device_error"
+        except Exception as error:
+            _LOGGER.exception("Unexpected error: %s", error)
+            errors["base"] = "unknown"
 
         if user_input is not None and not errors:
             selected_devices = user_input.get(CONF_DEVICES, [])
@@ -156,7 +141,7 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
 
             # 保存配置
             return self.async_create_entry(
-                title=f"EZVIZ Cloud ({len(selected_devices)} devices)",
+                title=f"萤石云 ({len(selected_devices)} 台设备)",
                 data={
                     CONF_APP_KEY: self.app_key,
                     CONF_APP_SECRET: self.app_secret,

@@ -1,12 +1,12 @@
 {
   "domain": "ezviz_cloud",
-  "name": "EZVIZ Cloud",
+  "name": "萤石云",
   "codeowners": ["@jadenliang"],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/liangjaden/hass-ezviz-cloud",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/liangjaden/hass-ezviz-cloud/issues",
-  "requirements": ["pyEzvizApi>=1.0.0.9"],
-  "version": "0.0.1"
+  "requirements": [],
+  "version": "0.1.0"
 }

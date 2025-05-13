@@ -1,4 +1,4 @@
-"""The EZVIZ Cloud integration."""
+"""The EZVIZ Cloud integration for Chinese market."""
 import asyncio
 import logging
 import json
@@ -14,15 +14,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.const import Platform
 
-# 导入新的pyEzvizApi库
-try:
-    from pyEzvizApi import EzvizApi
-    HAS_PYEZVIZ = True
-except ImportError as err:
-    HAS_PYEZVIZ = False
-    _LOGGER = logging.getLogger(__name__)
-    _LOGGER.error("Failed to import required dependency pyEzvizApi: %s", err)
-
+from .api import EzvizCloudChinaApi, EzvizCloudChinaApiError
 from .const import (
     DOMAIN,
     CONF_APP_KEY,
@@ -47,8 +39,8 @@ EN_TRANSLATIONS = {
     "config": {
         "step": {
             "user": {
-                "title": "EZVIZ Cloud",
-                "description": "Set up EZVIZ Cloud integration",
+                "title": "EZVIZ Cloud (China)",
+                "description": "Set up EZVIZ Cloud integration for the Chinese market",
                 "data": {
                     "app_key": "App Key",
                     "app_secret": "App Secret"
@@ -74,8 +66,7 @@ EN_TRANSLATIONS = {
             "cannot_connect": "Failed to connect to EZVIZ Cloud",
             "invalid_auth": "Invalid authentication",
             "no_devices": "No devices found in your account",
-            "device_error": "Error retrieving devices",
-            "import_error": "Failed to import required libraries. Please check if pyEzvizApi is properly installed."
+            "device_error": "Error retrieving devices"
         },
         "abort": {
             "already_configured": "EZVIZ Cloud is already configured"
@@ -126,8 +117,7 @@ ZH_TRANSLATIONS = {
             "cannot_connect": "连接萤石云失败",
             "invalid_auth": "认证无效",
             "no_devices": "您的账户中未发现设备",
-            "device_error": "获取设备时出错",
-            "import_error": "导入所需库失败。请检查pyEzvizApi是否正确安装。"
+            "device_error": "获取设备时出错"
         },
         "abort": {
             "already_configured": "萤石云已经配置过了"
@@ -203,11 +193,6 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up EZVIZ Cloud from a config entry."""
-    # 检查是否成功导入了pyEzvizApi库
-    if not HAS_PYEZVIZ:
-        _LOGGER.error("Cannot set up integration: pyEzvizApi library is not installed")
-        return False
-
     app_key = entry.data.get(CONF_APP_KEY)
     app_secret = entry.data.get(CONF_APP_SECRET)
     webhook_url = entry.data.get(CONF_WEBHOOK_URL)
@@ -215,15 +200,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     session = async_get_clientsession(hass)
 
     try:
-        # 使用新的pyEzvizApi库创建客户端
-        ezviz_client = EzvizApi(
-            apiKey=app_key,
-            apiSecret=app_secret,
+        # 创建API客户端
+        ezviz_client = EzvizCloudChinaApi(
+            app_key=app_key,
+            app_secret=app_secret,
             session=session
         )
 
         # 测试连接
-        await hass.async_add_executor_job(ezviz_client.get_token)
+        await ezviz_client.get_token()
 
         # 存储客户端对象
         hass.data[DOMAIN][entry.entry_id] = {
@@ -252,7 +237,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         # 注册服务
         register_services(hass)
 
-        # 设置平台 - 使用最新的方法
+        # 设置平台
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
         return True
@@ -271,33 +256,31 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def update_devices(hass, entry):
     """Update devices status and notify on changes."""
-    if not HAS_PYEZVIZ:
-        _LOGGER.error("Cannot update devices: pyEzvizApi library is not installed")
-        return
-
     ezviz_data = hass.data[DOMAIN][entry.entry_id]
     client = ezviz_data["client"]
     webhook_url = ezviz_data["webhook_url"]
 
     try:
-        # 获取设备列表 - 使用新的API方法
-        devices = await hass.async_add_executor_job(client.get_devices_infos)
+        # 获取设备列表
+        devices = await client.get_devices()
 
         for device in devices:
-            device_sn = device.get("deviceSerial")  # 字段名可能变化
+            device_sn = device.get("deviceSerial")
             if device_sn:
-                # 获取设备详情 - 使用新的API方法
-                device_info = device  # 在新API中，可能已经包含完整信息
-
-                # 检查隐私模式状态
-                # 根据新API调整字段名
-                privacy_status = PRIVACY_ON if device.get("privacy", False) else PRIVACY_OFF
+                # 获取设备隐私状态
+                try:
+                    privacy_enabled = await client.get_privacy_status(device_sn)
+                    privacy_status = PRIVACY_ON if privacy_enabled else PRIVACY_OFF
+                except EzvizCloudChinaApiError:
+                    # 设备可能不支持隐私模式
+                    _LOGGER.warning(f"Device {device_sn} may not support privacy mode")
+                    privacy_status = PRIVACY_OFF
 
                 # 保存设备状态
                 if device_sn not in ezviz_data["devices"]:
                     ezviz_data["devices"][device_sn] = {
                         "privacy_status": privacy_status,
-                        "info": device_info,
+                        "info": device,
                     }
                 else:
                     old_status = ezviz_data["devices"][device_sn]["privacy_status"]
@@ -329,13 +312,13 @@ async def update_devices(hass, entry):
                                 hass,
                                 webhook_url,
                                 device_sn,
-                                device_info.get("deviceName", device_sn),  # 字段名可能变化
+                                device.get("deviceName", device_sn),
                                 old_status,
                                 privacy_status,
                             )
 
                     # 更新设备信息
-                    ezviz_data["devices"][device_sn]["info"] = device_info
+                    ezviz_data["devices"][device_sn]["info"] = device
 
     except Exception as error:
         _LOGGER.error("Failed to update EZVIZ devices: %s", error)
@@ -377,10 +360,6 @@ async def send_webhook_notification(hass, webhook_url, device_sn, device_name, o
 
 def register_services(hass):
     """Register services for EZVIZ Cloud integration."""
-    if not HAS_PYEZVIZ:
-        _LOGGER.error("Cannot register services: pyEzvizApi library is not installed")
-        return
-
     from homeassistant.helpers import config_validation as cv
 
     async def async_set_privacy_mode(call):
@@ -392,21 +371,19 @@ def register_services(hass):
             client = ezviz_data["client"]
             if device_sn in ezviz_data["devices"]:
                 try:
-                    # 使用新的API方法设置隐私模式
-                    if privacy_mode == "on":
-                        # 在新API中调用正确的方法
-                        await hass.async_add_executor_job(
-                            client.set_device_privacy, device_sn, True
-                        )
+                    # 调用API设置隐私模式
+                    enable = privacy_mode == "on"
+                    success = await client.set_privacy(device_sn, enable)
+
+                    if success:
+                        # 立即更新设备状态
+                        await update_devices(hass, hass.config_entries.async_get_entry(entry_id))
+                        return True
                     else:
-                        await hass.async_add_executor_job(
-                            client.set_device_privacy, device_sn, False
+                        _LOGGER.error(
+                            "Failed to set privacy mode for device %s", device_sn
                         )
-
-                    # 立即更新设备状态
-                    await update_devices(hass, hass.config_entries.async_get_entry(entry_id))
-
-                    return True
+                        return False
                 except Exception as error:
                     _LOGGER.error(
                         "Failed to set privacy mode for device %s: %s", device_sn, error

@@ -8,6 +8,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, CONF_DEVICES, PRIVACY_ON, PRIVACY_OFF
+from .api import EzvizCloudChinaApiError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ class EzvizPrivacySwitch(SwitchEntity):
         self.device_sn = device_sn
 
         self._client = hass.data[DOMAIN][entry_id]["client"]
-        self._attr_name = f"Privacy Mode"
+        self._attr_name = "隐私模式"  # 使用中文名称
         self._attr_unique_id = f"{device_sn}_privacy_mode"
         self._attr_is_on = False
         self._attr_icon = "mdi:eye-off" if self._attr_is_on else "mdi:eye"
@@ -53,15 +54,15 @@ class EzvizPrivacySwitch(SwitchEntity):
     def device_info(self):
         """Return device information about this EZVIZ device."""
         device_info = self.hass.data[DOMAIN][self.entry_id]["devices"].get(self.device_sn, {}).get("info", {})
-        # 根据新API调整字段名
+        # 根据中国API调整字段名
         device_name = device_info.get("deviceName", self.device_sn)
-        device_type = device_info.get("deviceCategory", "Camera")
+        device_type = device_info.get("deviceType", "Camera")
         sw_version = device_info.get("version", "Unknown")
 
         return {
             "identifiers": {(DOMAIN, self.device_sn)},
             "name": device_name,
-            "manufacturer": "EZVIZ",
+            "manufacturer": "萤石",  # 使用中文名称
             "model": device_type,
             "sw_version": sw_version,
         }
@@ -78,25 +79,27 @@ class EzvizPrivacySwitch(SwitchEntity):
     async def async_turn_on(self, **kwargs):
         """Turn the privacy mode on."""
         try:
-            # 使用新的API方法
-            await self.hass.async_add_executor_job(
-                self._client.set_device_privacy, self.device_sn, True
-            )
-            self._attr_is_on = True
-            self._attr_icon = "mdi:eye-off"
-            self.async_write_ha_state()
-        except Exception as error:
+            # 使用中国API开启隐私模式
+            success = await self._client.set_privacy(self.device_sn, True)
+            if success:
+                self._attr_is_on = True
+                self._attr_icon = "mdi:eye-off"
+                self.async_write_ha_state()
+            else:
+                _LOGGER.error("Failed to enable privacy mode for %s", self.device_sn)
+        except EzvizCloudChinaApiError as error:
             _LOGGER.error("Failed to enable privacy mode: %s", error)
 
     async def async_turn_off(self, **kwargs):
         """Turn the privacy mode off."""
         try:
-            # 使用新的API方法
-            await self.hass.async_add_executor_job(
-                self._client.set_device_privacy, self.device_sn, False
-            )
-            self._attr_is_on = False
-            self._attr_icon = "mdi:eye"
-            self.async_write_ha_state()
-        except Exception as error:
+            # 使用中国API关闭隐私模式
+            success = await self._client.set_privacy(self.device_sn, False)
+            if success:
+                self._attr_is_on = False
+                self._attr_icon = "mdi:eye"
+                self.async_write_ha_state()
+            else:
+                _LOGGER.error("Failed to disable privacy mode for %s", self.device_sn)
+        except EzvizCloudChinaApiError as error:
             _LOGGER.error("Failed to disable privacy mode: %s", error)

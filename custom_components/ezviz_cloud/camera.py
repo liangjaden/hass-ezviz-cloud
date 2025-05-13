@@ -1,4 +1,4 @@
-"""Support for EZVIZ cameras."""
+"""Support for EZVIZ Cloud cameras."""
 import logging
 
 from homeassistant.components.camera import Camera
@@ -7,6 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, CONF_DEVICES
+from .api import EzvizCloudChinaApiError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,9 +51,9 @@ class EzvizCamera(Camera):
     def device_info(self):
         """Return device information about this EZVIZ camera."""
         device_info = self.hass.data[DOMAIN][self.entry_id]["devices"].get(self.device_sn, {}).get("info", {})
-        # 根据新API调整字段名
+        # 根据中国API调整字段名
         device_name = device_info.get("deviceName", self.device_sn)
-        device_type = device_info.get("deviceCategory", "Camera")
+        device_type = device_info.get("deviceType", "Camera")
         sw_version = device_info.get("version", "Unknown")
 
         return {
@@ -69,16 +70,12 @@ class EzvizCamera(Camera):
         device_info = self.hass.data[DOMAIN][self.entry_id]["devices"].get(self.device_sn, {}).get("info", {})
         return device_info.get("deviceName", self.device_sn)
 
-    async def async_camera_image(
-            self, width: int = None, height: int = None
-    ) -> bytes | None:
+    async def async_camera_image(self, width: int = None, height: int = None) -> bytes | None:
         """Return a still image from the camera."""
         try:
-            # 使用新的API方法获取图像
-            return await self.hass.async_add_executor_job(
-                self._client.get_device_image, self.device_sn
-            )
-        except Exception as error:
+            # 使用中国API获取图像
+            return await self._client.get_device_capture(self.device_sn)
+        except EzvizCloudChinaApiError as error:
             _LOGGER.error("Failed to get camera image: %s", error)
             return None
 
@@ -88,11 +85,9 @@ class EzvizCamera(Camera):
             return self._stream_source
 
         try:
-            # 使用新的API方法获取流地址
-            self._stream_source = await self.hass.async_add_executor_job(
-                self._client.get_device_rtsp_stream, self.device_sn
-            )
+            # 使用中国API获取流地址
+            self._stream_source = await self._client.get_live_stream_url(self.device_sn)
             return self._stream_source
-        except Exception as error:
+        except EzvizCloudChinaApiError as error:
             _LOGGER.error("Failed to get stream source: %s", error)
             return None
