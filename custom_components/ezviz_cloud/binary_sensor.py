@@ -41,7 +41,9 @@ class EzvizPrivacySensor(BinarySensorEntity):
     """Representation of a EZVIZ privacy sensor."""
 
     _attr_has_entity_name = True
-    _attr_device_class = BinarySensorDeviceClass.PRIVACY
+    # 修改：使用兼容的设备类或移除不存在的设备类
+    # 使用安全相关的设备类，或者完全移除这一行
+    _attr_device_class = BinarySensorDeviceClass.OCCUPANCY  # 或者其他合适的设备类
 
     def __init__(self, hass, entry_id, device_sn):
         """Initialize the EZVIZ privacy sensor."""
