@@ -1,14 +1,19 @@
 """Config flow for EZVIZ Cloud integration."""
+from __future__ import annotations
+
 import logging
 import voluptuous as vol
 
-from homeassistant import config_entries
+from homeassistant.config_entries import (
+    ConfigFlow,
+    OptionsFlow,
+    ConfigEntry,
+    CONN_CLASS_CLOUD_POLL
+)
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv, aiohttp_client
 from homeassistant.const import CONF_NAME
 from homeassistant.data_entry_flow import FlowResult
-
-from pyezviz import EzvizClient, EzvizError
 
 from .const import (
     DOMAIN,
@@ -24,12 +29,15 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Skip importing the EzvizClient here to avoid potential import errors
+# We'll import it in the async_step_user method when needed
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+
+class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for EZVIZ Cloud."""
 
     VERSION = 1
-    CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
+    CONNECTION_CLASS = CONN_CLASS_CLOUD_POLL
 
     def __init__(self):
         """Initialize the config flow."""
@@ -49,6 +57,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             session = aiohttp_client.async_get_clientsession(self.hass)
 
             try:
+                # Import here to avoid potential import errors during module loading
+                from pyezviz import EzvizClient, EzvizError
                 client = EzvizClient(app_key, app_secret, session=session)
                 await self.hass.async_add_executor_job(client.login)
 
@@ -59,7 +69,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 return await self.async_step_webhook()
 
-            except EzvizError as error:
+            except ImportError:
+                _LOGGER.error("Failed to import pyezviz. Make sure it's properly installed")
+                errors["base"] = "import_error"
+            except Exception as error:
                 _LOGGER.error("Failed to connect to EZVIZ: %s", error)
                 errors["base"] = "cannot_connect"
 
@@ -99,6 +112,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         device_options = {}
 
         try:
+            # Import here to avoid potential import errors during module loading
+            from pyezviz import EzvizError
+
             # 获取设备列表
             devices = await self.hass.async_add_executor_job(self.client.get_devices)
 
@@ -111,7 +127,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not device_options:
                 errors["base"] = "no_devices"
 
-        except EzvizError as error:
+        except Exception as error:
             _LOGGER.error("Failed to get EZVIZ devices: %s", error)
             errors["base"] = "device_error"
 
@@ -146,15 +162,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry):
+    def async_get_options_flow(config_entry: ConfigEntry) -> EzvizOptionsFlowHandler:
         """Get the options flow for this handler."""
-        return OptionsFlowHandler(config_entry)
+        return EzvizOptionsFlowHandler(config_entry)
 
 
-class OptionsFlowHandler(config_entries.OptionsFlow):
+class EzvizOptionsFlowHandler(OptionsFlow):
     """Handle EZVIZ options."""
 
-    def __init__(self, config_entry):
+    def __init__(self, config_entry: ConfigEntry):
         """Initialize options flow."""
         self.config_entry = config_entry
 

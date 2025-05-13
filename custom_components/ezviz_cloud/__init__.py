@@ -13,7 +13,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, Platform
 
-from pyezviz import EzvizClient, EzvizError
+# 避免在导入时加载EzvizClient，可能导致导入错误
+# 将在实际需要的函数中导入
 
 from .const import (
     DOMAIN,
@@ -64,7 +65,8 @@ EN_TRANSLATIONS = {
             "cannot_connect": "Failed to connect to EZVIZ Cloud",
             "invalid_auth": "Invalid authentication",
             "no_devices": "No devices found in your account",
-            "device_error": "Error retrieving devices"
+            "device_error": "Error retrieving devices",
+            "import_error": "Failed to import required libraries. Please check if PyEzviz is properly installed."
         },
         "abort": {
             "already_configured": "EZVIZ Cloud is already configured"
@@ -115,7 +117,8 @@ ZH_TRANSLATIONS = {
             "cannot_connect": "连接萤石云失败",
             "invalid_auth": "认证无效",
             "no_devices": "您的账户中未发现设备",
-            "device_error": "获取设备时出错"
+            "device_error": "获取设备时出错",
+            "import_error": "导入所需库失败。请检查PyEzviz是否正确安装。"
         },
         "abort": {
             "already_configured": "萤石云已经配置过了"
@@ -181,55 +184,69 @@ async def async_setup(hass: HomeAssistant, config: dict):
         with open(zh_json_path, "w", encoding='utf-8') as f:
             json.dump(ZH_TRANSLATIONS, f, indent=4, ensure_ascii=False)
 
+    # 写入strings.json文件
+    strings_json_path = Path(hass.config.path("custom_components", DOMAIN, "strings.json"))
+    if not strings_json_path.exists():
+        with open(strings_json_path, "w", encoding='utf-8') as f:
+            json.dump(EN_TRANSLATIONS, f, indent=4, ensure_ascii=False)
+
     return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up EZVIZ Cloud from a config entry."""
-    app_key = entry.data.get(CONF_APP_KEY)
-    app_secret = entry.data.get(CONF_APP_SECRET)
-    webhook_url = entry.data.get(CONF_WEBHOOK_URL)
-
-    session = async_get_clientsession(hass)
-
     try:
-        ezviz_client = EzvizClient(app_key, app_secret, session=session)
-        await hass.async_add_executor_job(ezviz_client.login)
+        # 导入放在函数中，避免模块导入时的问题
+        from pyezviz import EzvizClient, EzvizError
 
-        # 存储客户端对象
-        hass.data[DOMAIN][entry.entry_id] = {
-            "client": ezviz_client,
-            "devices": {},
-            "webhook_url": webhook_url,
-        }
+        app_key = entry.data.get(CONF_APP_KEY)
+        app_secret = entry.data.get(CONF_APP_SECRET)
+        webhook_url = entry.data.get(CONF_WEBHOOK_URL)
 
-        # 定期更新设备状态
-        update_interval = entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+        session = async_get_clientsession(hass)
 
-        # 设置定期更新
-        async def async_update_devices(now=None):
-            """Update all device states."""
+        try:
+            ezviz_client = EzvizClient(app_key, app_secret, session=session)
+            await hass.async_add_executor_job(ezviz_client.login)
+
+            # 存储客户端对象
+            hass.data[DOMAIN][entry.entry_id] = {
+                "client": ezviz_client,
+                "devices": {},
+                "webhook_url": webhook_url,
+            }
+
+            # 定期更新设备状态
+            update_interval = entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+
+            # 设置定期更新
+            async def async_update_devices(now=None):
+                """Update all device states."""
+                await update_devices(hass, entry)
+
+            entry.async_on_unload(
+                async_track_time_interval(
+                    hass, async_update_devices, timedelta(seconds=update_interval)
+                )
+            )
+
+            # 首次更新设备状态
             await update_devices(hass, entry)
 
-        entry.async_on_unload(
-            async_track_time_interval(
-                hass, async_update_devices, timedelta(seconds=update_interval)
-            )
-        )
+            # 注册服务
+            register_services(hass)
 
-        # 首次更新设备状态
-        await update_devices(hass, entry)
+            # 设置平台 - 使用最新的方法
+            await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-        # 注册服务
-        register_services(hass)
+            return True
 
-        # 设置平台 - 使用最新的方法
-        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        except EzvizError as error:
+            _LOGGER.error("Failed to initialize EZVIZ client: %s", error)
+            raise ConfigEntryNotReady from error
 
-        return True
-
-    except EzvizError as error:
-        _LOGGER.error("Failed to initialize EZVIZ client: %s", error)
-        raise ConfigEntryNotReady from error
+    except ImportError as err:
+        _LOGGER.error("Failed to import required libraries: %s", err)
+        return False
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Unload a config entry."""
@@ -241,71 +258,77 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def update_devices(hass, entry):
     """Update devices status and notify on changes."""
-    ezviz_data = hass.data[DOMAIN][entry.entry_id]
-    client = ezviz_data["client"]
-    webhook_url = ezviz_data["webhook_url"]
-
     try:
-        # 获取设备列表
-        devices = await hass.async_add_executor_job(client.get_devices)
+        # 导入放在函数中，避免模块导入时的问题
+        from pyezviz import EzvizError
 
-        for device in devices:
-            device_sn = device.get("device_serial")
-            if device_sn:
-                # 获取设备详情
-                device_info = await hass.async_add_executor_job(
-                    client.get_device_info, device_sn
-                )
+        ezviz_data = hass.data[DOMAIN][entry.entry_id]
+        client = ezviz_data["client"]
+        webhook_url = ezviz_data["webhook_url"]
 
-                # 检查隐私模式状态
-                privacy_status = device_info.get("privacy_status", "unknown")
+        try:
+            # 获取设备列表
+            devices = await hass.async_add_executor_job(client.get_devices)
 
-                # 保存设备状态
-                if device_sn not in ezviz_data["devices"]:
-                    ezviz_data["devices"][device_sn] = {
-                        "privacy_status": privacy_status,
-                        "info": device_info,
-                    }
-                else:
-                    old_status = ezviz_data["devices"][device_sn]["privacy_status"]
-                    if old_status != privacy_status:
-                        # 状态变化，触发事件
-                        _LOGGER.info(
-                            "Privacy mode changed for device %s: %s -> %s",
-                            device_sn,
-                            old_status,
-                            privacy_status,
-                        )
+            for device in devices:
+                device_sn = device.get("device_serial")
+                if device_sn:
+                    # 获取设备详情
+                    device_info = await hass.async_add_executor_job(
+                        client.get_device_info, device_sn
+                    )
 
-                        # 更新存储的状态
-                        ezviz_data["devices"][device_sn]["privacy_status"] = privacy_status
+                    # 检查隐私模式状态
+                    privacy_status = device_info.get("privacy_status", "unknown")
 
-                        # 触发事件
-                        hass.bus.async_fire(
-                            EVENT_PRIVACY_CHANGED,
-                            {
-                                "device_sn": device_sn,
-                                "old_status": old_status,
-                                "new_status": privacy_status,
-                            },
-                        )
-
-                        # 发送webhook通知
-                        if webhook_url:
-                            await send_webhook_notification(
-                                hass,
-                                webhook_url,
+                    # 保存设备状态
+                    if device_sn not in ezviz_data["devices"]:
+                        ezviz_data["devices"][device_sn] = {
+                            "privacy_status": privacy_status,
+                            "info": device_info,
+                        }
+                    else:
+                        old_status = ezviz_data["devices"][device_sn]["privacy_status"]
+                        if old_status != privacy_status:
+                            # 状态变化，触发事件
+                            _LOGGER.info(
+                                "Privacy mode changed for device %s: %s -> %s",
                                 device_sn,
-                                device_info.get("device_name", device_sn),
                                 old_status,
                                 privacy_status,
                             )
 
-                    # 更新设备信息
-                    ezviz_data["devices"][device_sn]["info"] = device_info
+                            # 更新存储的状态
+                            ezviz_data["devices"][device_sn]["privacy_status"] = privacy_status
 
-    except EzvizError as error:
-        _LOGGER.error("Failed to update EZVIZ devices: %s", error)
+                            # 触发事件
+                            hass.bus.async_fire(
+                                EVENT_PRIVACY_CHANGED,
+                                {
+                                    "device_sn": device_sn,
+                                    "old_status": old_status,
+                                    "new_status": privacy_status,
+                                },
+                            )
+
+                            # 发送webhook通知
+                            if webhook_url:
+                                await send_webhook_notification(
+                                    hass,
+                                    webhook_url,
+                                    device_sn,
+                                    device_info.get("device_name", device_sn),
+                                    old_status,
+                                    privacy_status,
+                                )
+
+                        # 更新设备信息
+                        ezviz_data["devices"][device_sn]["info"] = device_info
+
+        except EzvizError as error:
+            _LOGGER.error("Failed to update EZVIZ devices: %s", error)
+    except ImportError as err:
+        _LOGGER.error("Failed to import required libraries: %s", err)
 
 async def send_webhook_notification(hass, webhook_url, device_sn, device_name, old_status, new_status):
     """Send webhook notification to WeCom."""
@@ -349,35 +372,42 @@ def register_services(hass):
 
     async def async_set_privacy_mode(call):
         """Set privacy mode for a device."""
-        device_sn = call.data.get("device_sn")
-        privacy_mode = call.data.get("privacy_mode")
+        try:
+            # 导入放在函数中，避免模块导入时的问题
+            from pyezviz import EzvizError
 
-        for entry_id, ezviz_data in hass.data[DOMAIN].items():
-            client = ezviz_data["client"]
-            if device_sn in ezviz_data["devices"]:
-                try:
-                    # 设置隐私模式
-                    if privacy_mode == "on":
-                        await hass.async_add_executor_job(
-                            client.enable_privacy_mode, device_sn
+            device_sn = call.data.get("device_sn")
+            privacy_mode = call.data.get("privacy_mode")
+
+            for entry_id, ezviz_data in hass.data[DOMAIN].items():
+                client = ezviz_data["client"]
+                if device_sn in ezviz_data["devices"]:
+                    try:
+                        # 设置隐私模式
+                        if privacy_mode == "on":
+                            await hass.async_add_executor_job(
+                                client.enable_privacy_mode, device_sn
+                            )
+                        else:
+                            await hass.async_add_executor_job(
+                                client.disable_privacy_mode, device_sn
+                            )
+
+                        # 立即更新设备状态
+                        await update_devices(hass, hass.config_entries.async_get_entry(entry_id))
+
+                        return True
+                    except EzvizError as error:
+                        _LOGGER.error(
+                            "Failed to set privacy mode for device %s: %s", device_sn, error
                         )
-                    else:
-                        await hass.async_add_executor_job(
-                            client.disable_privacy_mode, device_sn
-                        )
+                        return False
 
-                    # 立即更新设备状态
-                    await update_devices(hass, hass.config_entries.async_get_entry(entry_id))
-
-                    return True
-                except EzvizError as error:
-                    _LOGGER.error(
-                        "Failed to set privacy mode for device %s: %s", device_sn, error
-                    )
-                    return False
-
-        _LOGGER.error("Device %s not found", device_sn)
-        return False
+            _LOGGER.error("Device %s not found", device_sn)
+            return False
+        except ImportError as err:
+            _LOGGER.error("Failed to import required libraries: %s", err)
+            return False
 
     hass.services.async_register(
         DOMAIN,
