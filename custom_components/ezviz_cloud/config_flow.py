@@ -27,7 +27,7 @@ class EzvizCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for EZVIZ Cloud."""
 
     VERSION = 1
-    CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
+    # 删除CONNECTION_CLASS属性，这已在新版Home Assistant中被弃用
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
@@ -140,6 +140,7 @@ class EzvizCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(config_entry):
         """Get the options flow for this handler."""
         return EzvizOptionsFlowHandler(config_entry)
+
 
 class EzvizOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle EZVIZ options."""

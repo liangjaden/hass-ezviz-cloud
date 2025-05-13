@@ -29,6 +29,7 @@ from .card import async_setup_cards
 
 _LOGGER = logging.getLogger(__name__)
 
+# 使用新的Platform格式定义
 PLATFORMS = [Platform.CAMERA, Platform.SWITCH, Platform.BINARY_SENSOR]
 
 # 翻译文件内容
@@ -221,7 +222,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         # 注册服务
         register_services(hass)
 
-        # 设置平台
+        # 设置平台 - 使用新的推荐方法
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
         return True
