@@ -1,9 +1,12 @@
 """Support for EZVIZ Cloud cameras."""
 import logging
+import asyncio
+from typing import Optional
 
-from homeassistant.components.camera import Camera
+from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, CONF_DEVICES
@@ -23,6 +26,9 @@ async def async_setup_entry(
 
     # 获取配置的设备
     configured_devices = entry.data.get(CONF_DEVICES, [])
+    if not configured_devices:
+        _LOGGER.info("No devices configured for cameras, skipping setup")
+        return
 
     cameras = []
     for device_sn in configured_devices:
@@ -47,8 +53,11 @@ class EzvizCamera(Camera):
         self._attr_motion_detection_enabled = False
         self._stream_source = None
 
+        # 支持流式功能
+        self._attr_supported_features = CameraEntityFeature.STREAM
+
     @property
-    def device_info(self):
+    def device_info(self) -> DeviceInfo:
         """Return device information about this EZVIZ camera."""
         device_info = self.hass.data[DOMAIN][self.entry_id]["devices"].get(self.device_sn, {}).get("info", {})
         # 根据中国API调整字段名
@@ -56,13 +65,13 @@ class EzvizCamera(Camera):
         device_type = device_info.get("deviceType", "Camera")
         sw_version = device_info.get("version", "Unknown")
 
-        return {
-            "identifiers": {(DOMAIN, self.device_sn)},
-            "name": device_name,
-            "manufacturer": "EZVIZ",
-            "model": device_type,
-            "sw_version": sw_version,
-        }
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.device_sn)},
+            name=device_name,
+            manufacturer="萤石",
+            model=device_type,
+            sw_version=sw_version,
+        )
 
     @property
     def name(self):
@@ -70,7 +79,7 @@ class EzvizCamera(Camera):
         device_info = self.hass.data[DOMAIN][self.entry_id]["devices"].get(self.device_sn, {}).get("info", {})
         return device_info.get("deviceName", self.device_sn)
 
-    async def async_camera_image(self, width: int = None, height: int = None) -> bytes | None:
+    async def async_camera_image(self, width: Optional[int] = None, height: Optional[int] = None) -> Optional[bytes]:
         """Return a still image from the camera."""
         try:
             # 使用中国API获取图像
@@ -78,8 +87,11 @@ class EzvizCamera(Camera):
         except EzvizCloudChinaApiError as error:
             _LOGGER.error("Failed to get camera image: %s", error)
             return None
+        except Exception as ex:
+            _LOGGER.error("Unexpected error getting camera image: %s", ex)
+            return None
 
-    async def stream_source(self):
+    async def async_stream_source(self):
         """Return the stream source."""
         if self._stream_source is not None:
             return self._stream_source

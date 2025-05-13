@@ -195,13 +195,13 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=schema,
             errors=errors,
             description_placeholders={
-                "refresh_tip": "选中刷新设备列表并点击提交来刷新设备列表"
+                "refresh_tip": "选中刷新并点击提交来刷新设备列表"
             }
         )
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> EzvizOptionsFlowHandler:
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
         """Get the options flow for this handler."""
         return EzvizOptionsFlowHandler(config_entry)
 
@@ -321,6 +321,6 @@ class EzvizOptionsFlowHandler(OptionsFlow):
             data_schema=schema,
             errors=errors,
             description_placeholders={
-                "refresh_tip": "选中刷新设备列表并点击提交来刷新设备列表"
+                "refresh_tip": "选中刷新并点击提交来刷新设备列表"
             }
         )

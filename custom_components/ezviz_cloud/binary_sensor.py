@@ -7,6 +7,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, CONF_DEVICES, PRIVACY_ON
@@ -25,6 +26,9 @@ async def async_setup_entry(
 
     # 获取配置的设备
     configured_devices = entry.data.get(CONF_DEVICES, [])
+    if not configured_devices:
+        _LOGGER.info("No devices configured for binary sensors, skipping setup")
+        return
 
     sensors = []
     for device_sn in configured_devices:
@@ -50,7 +54,7 @@ class EzvizPrivacySensor(BinarySensorEntity):
         self._attr_is_on = False
 
     @property
-    def device_info(self):
+    def device_info(self) -> DeviceInfo:
         """Return device information about this EZVIZ sensor."""
         device_info = self.hass.data[DOMAIN][self.entry_id]["devices"].get(self.device_sn, {}).get("info", {})
         # 根据中国API调整字段名
@@ -58,13 +62,13 @@ class EzvizPrivacySensor(BinarySensorEntity):
         device_type = device_info.get("deviceType", "Camera")
         sw_version = device_info.get("version", "Unknown")
 
-        return {
-            "identifiers": {(DOMAIN, self.device_sn)},
-            "name": device_name,
-            "manufacturer": "萤石",  # 使用中文名称
-            "model": device_type,
-            "sw_version": sw_version,
-        }
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.device_sn)},
+            name=device_name,
+            manufacturer="萤石",
+            model=device_type,
+            sw_version=sw_version,
+        )
 
     async def async_update(self):
         """Update the sensor state."""

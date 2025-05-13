@@ -4,7 +4,7 @@ import logging
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity import EntityCategory, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, CONF_DEVICES, PRIVACY_ON, PRIVACY_OFF
@@ -24,6 +24,9 @@ async def async_setup_entry(
 
     # 获取配置的设备
     configured_devices = entry.data.get(CONF_DEVICES, [])
+    if not configured_devices:
+        _LOGGER.info("No devices configured for switches, skipping setup")
+        return
 
     switches = []
     for device_sn in configured_devices:
@@ -51,7 +54,7 @@ class EzvizPrivacySwitch(SwitchEntity):
         self._attr_icon = "mdi:eye-off" if self._attr_is_on else "mdi:eye"
 
     @property
-    def device_info(self):
+    def device_info(self) -> DeviceInfo:
         """Return device information about this EZVIZ device."""
         device_info = self.hass.data[DOMAIN][self.entry_id]["devices"].get(self.device_sn, {}).get("info", {})
         # 根据中国API调整字段名
@@ -59,13 +62,13 @@ class EzvizPrivacySwitch(SwitchEntity):
         device_type = device_info.get("deviceType", "Camera")
         sw_version = device_info.get("version", "Unknown")
 
-        return {
-            "identifiers": {(DOMAIN, self.device_sn)},
-            "name": device_name,
-            "manufacturer": "萤石",  # 使用中文名称
-            "model": device_type,
-            "sw_version": sw_version,
-        }
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.device_sn)},
+            name=device_name,
+            manufacturer="萤石",
+            model=device_type,
+            sw_version=sw_version,
+        )
 
     async def async_update(self):
         """Update the switch state."""

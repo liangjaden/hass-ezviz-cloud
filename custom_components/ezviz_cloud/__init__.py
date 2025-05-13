@@ -160,8 +160,9 @@ def create_icons(hass):
     # 写入图标文件
     icon_path = icons_dir / "ezviz.svg"
     if not icon_path.exists():
-        with open(icon_path, "w") as icon_file:
+        with open(icon_path, "w", encoding='utf-8') as icon_file:
             icon_file.write(EZVIZ_ICON_SVG)
+        _LOGGER.debug("Created icon file at %s", icon_path)
 
 async def async_setup(hass: HomeAssistant, config: dict):
     """Set up the EZVIZ Cloud component."""
@@ -223,8 +224,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             "webhook_url": webhook_url,
         }
 
-        # 定期更新设备状态
-        update_interval = entry.options.get(CONF_UPDATE_INTERVAL, entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL))
+        # 设置更新间隔
+        # 从options中获取，如果不存在则从data中获取，如果还不存在则使用默认值
+        update_interval = entry.options.get(
+            CONF_UPDATE_INTERVAL,
+            entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+        )
 
         # 设置定期更新
         async def async_update_devices(now=None):
@@ -260,11 +265,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     return unload_ok
 
-async def update_devices(hass, entry):
+async def update_devices(hass: HomeAssistant, entry: ConfigEntry):
     """Update devices status and notify on changes."""
     ezviz_data = hass.data[DOMAIN][entry.entry_id]
     client = ezviz_data["client"]
-    webhook_url = ezviz_data["webhook_url"]
+    webhook_url = ezviz_data.get("webhook_url")
     configured_devices = entry.data.get(CONF_DEVICES, [])
 
     # 如果没有配置任何设备，则跳过更新
@@ -276,7 +281,16 @@ async def update_devices(hass, entry):
         # 获取设备列表
         devices = await client.get_devices()
 
+        # 确保devices是列表
+        if not isinstance(devices, list):
+            _LOGGER.error("Expected device list but got %s", type(devices))
+            return
+
         for device in devices:
+            # 确保device是字典
+            if not isinstance(device, dict):
+                continue
+
             device_sn = device.get("deviceSerial")
             # 只处理已配置的设备
             if device_sn and device_sn in configured_devices:
@@ -286,7 +300,7 @@ async def update_devices(hass, entry):
                     privacy_status = PRIVACY_ON if privacy_enabled else PRIVACY_OFF
                 except EzvizCloudChinaApiError:
                     # 设备可能不支持隐私模式
-                    _LOGGER.warning(f"Device {device_sn} may not support privacy mode")
+                    _LOGGER.warning("Device %s may not support privacy mode", device_sn)
                     privacy_status = PRIVACY_OFF
 
                 # 保存设备状态

@@ -1,6 +1,7 @@
 """Card definitions for EZVIZ Cloud integration."""
 import logging
 import os
+import aiofiles
 from pathlib import Path
 
 from homeassistant.core import HomeAssistant
@@ -18,43 +19,53 @@ async def async_setup_cards(hass: HomeAssistant):
     # 复制卡片文件
     card_js_path = cards_dir / "ezviz-camera-card.js"
     if not card_js_path.exists():
-        with open(card_js_path, "w") as card_file:
-            card_file.write(EZVIZ_CAMERA_CARD_JS)
+        try:
+            # 使用同步方式写入文件，避免可能的异步问题
+            with open(card_js_path, "w", encoding='utf-8') as card_file:
+                card_file.write(EZVIZ_CAMERA_CARD_JS)
 
-    # 注册Lovelace资源，如果可能的话
+            _LOGGER.debug("Created camera card file at %s", card_js_path)
+        except Exception as e:
+            _LOGGER.error("Failed to create camera card file: %s", e)
+
+    # 注册Lovelace资源
     try:
-        from homeassistant.components.lovelace.resources import ResourceStorageCollection
+        # 在Home Assistant 2021.7之后，需要通过资源存储系统注册
+        try:
+            from homeassistant.components.lovelace import resources
+            from homeassistant.components.lovelace.resources import ResourceStorageCollection
 
-        resources = ResourceStorageCollection(hass)
-        await resources.async_initialize()
+            # 获取资源存储集合
+            resource_collection = ResourceStorageCollection(hass)
+            await resource_collection.async_initialize()
 
-        resource_url = f"/local/{DOMAIN}/ezviz-camera-card.js"
-        resource_exists = False
+            # 设置资源URL和类型
+            resource_url = f"/local/{DOMAIN}/ezviz-camera-card.js"
+            resource_exists = False
 
-        for resource in resources.async_items():
-            if resource["url"] == resource_url:
-                resource_exists = True
-                break
+            # 检查资源是否已经存在
+            for resource in resource_collection.async_items():
+                if resource["url"] == resource_url:
+                    resource_exists = True
+                    break
 
-        if not resource_exists:
-            try:
-                await resources.async_create_item(
-                    {
+            # 如果资源不存在，创建它
+            if not resource_exists:
+                try:
+                    await resource_collection.async_create_item({
                         "url": resource_url,
                         "type": "module",
                         "res_type": "custom-card",
-                    }
-                )
-                _LOGGER.info("已注册萤石摄像头卡片作为Lovelace资源")
-            except Exception as e:
-                _LOGGER.warning("无法注册萤石摄像头卡片: %s", e)
-                _LOGGER.info(
-                    "您需要手动添加'/local/%s/ezviz-camera-card.js' "
-                    "作为Lovelace资源在您的UI设置中", DOMAIN
-                )
-    except (ImportError, AttributeError):
+                    })
+                    _LOGGER.info("已注册萤石摄像头卡片作为Lovelace资源")
+                except Exception as e:
+                    _LOGGER.warning("无法注册Lovelace资源: %s", e)
+        except (ImportError, AttributeError, ValueError) as e:
+            _LOGGER.warning("无法使用资源存储系统注册Lovelace资源: %s", e)
+            _LOGGER.info("您可能需要手动添加资源: /local/%s/ezviz-camera-card.js", DOMAIN)
+    except Exception as e:
+        _LOGGER.warning("注册Lovelace资源时出错: %s", e)
         _LOGGER.info(
-            "未找到Lovelace集成或不支持自动注册。"
             "您需要手动添加'/local/%s/ezviz-camera-card.js' "
             "作为Lovelace资源在您的UI设置中", DOMAIN
         )
