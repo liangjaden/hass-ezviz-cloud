@@ -1,7 +1,7 @@
 """API client for EZVIZ Cloud China."""
 import logging
 import time
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 
 import aiohttp
 from aiohttp import ClientSession
@@ -62,8 +62,11 @@ class EzvizCloudChinaApi:
                     _LOGGER.error(error_msg)
                     raise EzvizCloudChinaApiError(error_msg)
                 return data.get("data", {})
-        except Exception as err:
+        except aiohttp.ClientError as err:
             _LOGGER.error(f"Request error: {err}")
+            raise EzvizCloudChinaApiError(f"Request failed: {err}")
+        except Exception as err:
+            _LOGGER.error(f"Unexpected error: {err}")
             raise EzvizCloudChinaApiError(f"Request failed: {err}")
 
     async def ensure_token_valid(self) -> str:
@@ -104,8 +107,19 @@ class EzvizCloudChinaApi:
             "pageSize": 50,  # Adjust as needed
         }
 
-        data = await self._request(API_GET_DEVICES, "POST", params)
-        return data.get("deviceInfos", [])
+        try:
+            data = await self._request(API_GET_DEVICES, "POST", params)
+            # 有些API版本返回的是一个列表，有些是一个包含deviceInfos的字典
+            if isinstance(data, dict) and "deviceInfos" in data:
+                return data.get("deviceInfos", [])
+            elif isinstance(data, list):
+                return data
+            else:
+                _LOGGER.warning(f"Unexpected device data format: {data}")
+                return []
+        except EzvizCloudChinaApiError:
+            _LOGGER.error("Error getting devices list, returning empty list")
+            return []
 
     async def get_device_info(self, device_serial: str) -> Dict[str, Any]:
         """Get information about a specific device."""
@@ -155,23 +169,31 @@ class EzvizCloudChinaApi:
         """Get a snapshot from the device."""
         await self.ensure_token_valid()
 
-        params = {
-            "deviceSerial": device_serial,
-            "channelNo": channel_no
-        }
-
-        if not self.session:
-            self.session = aiohttp.ClientSession()
-
         # For image captures, we need to handle the response differently
         try:
             url = f"{API_GET_DEVICE_CAPTURE}?accessToken={self.access_token}&deviceSerial={device_serial}&channelNo={channel_no}"
+
+            if not self.session:
+                self.session = aiohttp.ClientSession()
+
             async with self.session.get(url) as resp:
                 if resp.status != 200:
                     error_text = await resp.text()
                     _LOGGER.error(f"Failed to get device capture: {error_text}")
                     raise EzvizCloudChinaApiError(f"Failed to get device capture: {resp.status}")
-                return await resp.read()
+
+                content_type = resp.headers.get("Content-Type", "")
+                # 检查是否是图片响应
+                if "image" in content_type:
+                    return await resp.read()
+                else:
+                    # 可能返回了错误信息的JSON
+                    error_text = await resp.text()
+                    _LOGGER.error(f"Expected image but got: {error_text}")
+                    raise EzvizCloudChinaApiError(f"Invalid capture response: {error_text}")
+        except aiohttp.ClientError as err:
+            _LOGGER.error(f"Failed to get device capture: {err}")
+            raise EzvizCloudChinaApiError(f"Failed to get device capture: {err}")
         except Exception as err:
             _LOGGER.error(f"Failed to get device capture: {err}")
             raise EzvizCloudChinaApiError(f"Failed to get device capture: {err}")

@@ -117,9 +117,23 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
         self.device_options = {}
         try:
             # 获取设备列表
-            self.available_devices = await self.client.get_devices()
+            response = await self.client.get_devices()
 
+            # 检查响应类型和内容
+            if isinstance(response, list):
+                self.available_devices = response
+            elif isinstance(response, dict) and "deviceInfos" in response:
+                self.available_devices = response.get("deviceInfos", [])
+            else:
+                _LOGGER.error("Unexpected response format: %s", response)
+                return False
+
+            # 处理设备列表
             for device in self.available_devices:
+                # 确保device是字典
+                if not isinstance(device, dict):
+                    continue
+
                 device_sn = device.get("deviceSerial")
                 device_name = device.get("deviceName", device_sn)
                 if device_sn:
@@ -139,19 +153,19 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
 
         # 如果是刷新操作
         if user_input is not None and user_input.get("refresh", False):
+            self.device_options = {}  # 清空设备列表
             if not await self._fetch_devices():
                 errors["base"] = "device_error"
+            # 返回相同页面，但带有刷新后的设备列表
             return await self.async_step_devices()
 
-        # 第一次进入或者提交设备选择
-        if not self.device_options:
+        # 首次进入此步骤时尝试获取设备
+        if not self.device_options and not errors:
             if not await self._fetch_devices():
                 errors["base"] = "device_error"
 
-        if not self.device_options and not errors:
-            errors["base"] = "no_devices"
-
-        if user_input is not None and not errors and not user_input.get("refresh", False):
+        # 提交表单（不是刷新按钮）
+        if user_input is not None and not user_input.get("refresh", False):
             selected_devices = user_input.get(CONF_DEVICES, [])
             update_interval = user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
 
@@ -216,9 +230,23 @@ class EzvizOptionsFlowHandler(OptionsFlow):
             )
 
             # 获取设备列表
-            self.available_devices = await self.client.get_devices()
+            response = await self.client.get_devices()
 
+            # 检查响应类型和内容
+            if isinstance(response, list):
+                self.available_devices = response
+            elif isinstance(response, dict) and "deviceInfos" in response:
+                self.available_devices = response.get("deviceInfos", [])
+            else:
+                _LOGGER.error("Unexpected response format in options flow: %s", response)
+                return False
+
+            # 处理设备列表
             for device in self.available_devices:
+                # 确保device是字典
+                if not isinstance(device, dict):
+                    continue
+
                 device_sn = device.get("deviceSerial")
                 device_name = device.get("deviceName", device_sn)
                 if device_sn:
