@@ -53,14 +53,17 @@ class EzvizPrivacySensor(BinarySensorEntity):
     def device_info(self):
         """Return device information about this EZVIZ sensor."""
         device_info = self.hass.data[DOMAIN][self.entry_id]["devices"].get(self.device_sn, {}).get("info", {})
-        device_name = device_info.get("device_name", self.device_sn)
+        # 根据新API调整字段名
+        device_name = device_info.get("deviceName", self.device_sn)
+        device_type = device_info.get("deviceCategory", "Camera")
+        sw_version = device_info.get("version", "Unknown")
 
         return {
             "identifiers": {(DOMAIN, self.device_sn)},
             "name": device_name,
             "manufacturer": "EZVIZ",
-            "model": device_info.get("device_type", "Camera"),
-            "sw_version": device_info.get("version", "Unknown"),
+            "model": device_type,
+            "sw_version": sw_version,
         }
 
     async def async_update(self):

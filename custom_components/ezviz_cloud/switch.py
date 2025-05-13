@@ -53,14 +53,17 @@ class EzvizPrivacySwitch(SwitchEntity):
     def device_info(self):
         """Return device information about this EZVIZ device."""
         device_info = self.hass.data[DOMAIN][self.entry_id]["devices"].get(self.device_sn, {}).get("info", {})
-        device_name = device_info.get("device_name", self.device_sn)
+        # 根据新API调整字段名
+        device_name = device_info.get("deviceName", self.device_sn)
+        device_type = device_info.get("deviceCategory", "Camera")
+        sw_version = device_info.get("version", "Unknown")
 
         return {
             "identifiers": {(DOMAIN, self.device_sn)},
             "name": device_name,
             "manufacturer": "EZVIZ",
-            "model": device_info.get("device_type", "Camera"),
-            "sw_version": device_info.get("version", "Unknown"),
+            "model": device_type,
+            "sw_version": sw_version,
         }
 
     async def async_update(self):
@@ -75,8 +78,9 @@ class EzvizPrivacySwitch(SwitchEntity):
     async def async_turn_on(self, **kwargs):
         """Turn the privacy mode on."""
         try:
+            # 使用新的API方法
             await self.hass.async_add_executor_job(
-                self._client.enable_privacy_mode, self.device_sn
+                self._client.set_device_privacy, self.device_sn, True
             )
             self._attr_is_on = True
             self._attr_icon = "mdi:eye-off"
@@ -87,8 +91,9 @@ class EzvizPrivacySwitch(SwitchEntity):
     async def async_turn_off(self, **kwargs):
         """Turn the privacy mode off."""
         try:
+            # 使用新的API方法
             await self.hass.async_add_executor_job(
-                self._client.disable_privacy_mode, self.device_sn
+                self._client.set_device_privacy, self.device_sn, False
             )
             self._attr_is_on = False
             self._attr_icon = "mdi:eye"

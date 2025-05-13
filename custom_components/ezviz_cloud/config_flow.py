@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
+
 import voluptuous as vol
 
 from homeassistant.config_entries import (
@@ -12,7 +14,6 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv, aiohttp_client
-from homeassistant.const import CONF_NAME
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
@@ -29,8 +30,13 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Skip importing the EzvizClient here to avoid potential import errors
-# We'll import it in the async_step_user method when needed
+# 将导入放在顶部，用try-except处理，这样在导入时会更明确地捕获错误
+try:
+    from pyEzvizApi import EzvizApi
+    PYEZVIZ_IMPORT_ERROR = None
+except ImportError as err:
+    PYEZVIZ_IMPORT_ERROR = err
+    _LOGGER.error("Failed to import pyEzvizApi: %s", err)
 
 
 class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -50,6 +56,20 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
         errors = {}
 
+        # 先检查是否存在导入错误
+        if PYEZVIZ_IMPORT_ERROR is not None:
+            errors["base"] = "import_error"
+            return self.async_show_form(
+                step_id="user",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_APP_KEY): str,
+                        vol.Required(CONF_APP_SECRET): str,
+                    }
+                ),
+                errors=errors,
+            )
+
         if user_input is not None:
             app_key = user_input[CONF_APP_KEY]
             app_secret = user_input[CONF_APP_SECRET]
@@ -57,10 +77,15 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
             session = aiohttp_client.async_get_clientsession(self.hass)
 
             try:
-                # Import here to avoid potential import errors during module loading
-                from pyezviz import EzvizClient, EzvizError
-                client = EzvizClient(app_key, app_secret, session=session)
-                await self.hass.async_add_executor_job(client.login)
+                # 使用新的pyEzvizApi库
+                client = EzvizApi(
+                    apiKey=app_key,
+                    apiSecret=app_secret,
+                    session=session
+                )
+
+                # 测试连接 - 尝试获取令牌
+                await self.hass.async_add_executor_job(client.get_token)
 
                 # 登录成功，保存数据并进入下一步
                 self.app_key = app_key
@@ -69,9 +94,6 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
 
                 return await self.async_step_webhook()
 
-            except ImportError:
-                _LOGGER.error("Failed to import pyezviz. Make sure it's properly installed")
-                errors["base"] = "import_error"
             except Exception as error:
                 _LOGGER.error("Failed to connect to EZVIZ: %s", error)
                 errors["base"] = "cannot_connect"
@@ -112,15 +134,12 @@ class EzvizCloudConfigFlow(ConfigFlow, domain=DOMAIN):
         device_options = {}
 
         try:
-            # Import here to avoid potential import errors during module loading
-            from pyezviz import EzvizError
-
-            # 获取设备列表
-            devices = await self.hass.async_add_executor_job(self.client.get_devices)
+            # 使用新的pyEzvizApi获取设备列表
+            devices = await self.hass.async_add_executor_job(self.client.get_devices_infos)
 
             for device in devices:
-                device_sn = device.get("device_serial")
-                device_name = device.get("device_name", device_sn)
+                device_sn = device.get("deviceSerial")  # 注意字段可能变化
+                device_name = device.get("deviceName", device_sn)
                 if device_sn:
                     device_options[device_sn] = f"{device_name} ({device_sn})"
 
