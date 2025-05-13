@@ -24,12 +24,11 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-
-@config_entries.HANDLERS.register(DOMAIN)
-class EzvizCloudConfigFlow(config_entries.ConfigFlow):
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for EZVIZ Cloud."""
 
     VERSION = 1
+    CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
     def __init__(self):
         """Initialize the config flow."""
@@ -148,10 +147,10 @@ class EzvizCloudConfigFlow(config_entries.ConfigFlow):
     @callback
     def async_get_options_flow(config_entry):
         """Get the options flow for this handler."""
-        return EzvizOptionsFlowHandler(config_entry)
+        return OptionsFlowHandler(config_entry)
 
 
-class EzvizOptionsFlowHandler(config_entries.OptionsFlow):
+class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle EZVIZ options."""
 
     def __init__(self, config_entry):
