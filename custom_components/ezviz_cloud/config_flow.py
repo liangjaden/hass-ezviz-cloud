@@ -6,6 +6,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv, aiohttp_client
 from homeassistant.const import CONF_NAME
+from homeassistant.data_entry_flow import FlowResult
 
 from pyezviz import EzvizClient, EzvizError
 
@@ -23,13 +24,21 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
+# 确保类名与域名匹配，并且继承自ConfigFlow
 class EzvizCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for EZVIZ Cloud."""
 
     VERSION = 1
-    # 删除CONNECTION_CLASS属性，这已在新版Home Assistant中被弃用
 
-    async def async_step_user(self, user_input=None):
+    def __init__(self):
+        """Initialize the config flow."""
+        self.app_key = None
+        self.app_secret = None
+        self.client = None
+        self.webhook_url = None
+
+    async def async_step_user(self, user_input=None) -> FlowResult:
         """Handle the initial step."""
         errors = {}
 
@@ -65,7 +74,7 @@ class EzvizCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_webhook(self, user_input=None):
+    async def async_step_webhook(self, user_input=None) -> FlowResult:
         """Configure webhook for notification."""
         if user_input is not None:
             webhook_url = user_input.get(CONF_WEBHOOK_URL)
@@ -84,7 +93,7 @@ class EzvizCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         )
 
-    async def async_step_devices(self, user_input=None):
+    async def async_step_devices(self, user_input=None) -> FlowResult:
         """Select devices to monitor."""
         errors = {}
         device_options = {}
@@ -149,7 +158,7 @@ class EzvizOptionsFlowHandler(config_entries.OptionsFlow):
         """Initialize options flow."""
         self.config_entry = config_entry
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(self, user_input=None) -> FlowResult:
         """Manage the options."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
