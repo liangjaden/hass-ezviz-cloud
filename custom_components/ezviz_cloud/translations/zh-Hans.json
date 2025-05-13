@@ -1,0 +1,50 @@
+ZH_TRANSLATIONS = {
+  "config": {
+    "step": {
+      "user": {
+        "title": "萤石云",
+        "description": "设置萤石云集成",
+        "data": {
+          "app_key": "App Key",
+          "app_secret": "App Secret"
+        }
+      },
+      "webhook": {
+        "title": "企业微信通知",
+        "description": "配置企业微信机器人 Webhook URL 以接收隐私状态变更通知",
+        "data": {
+          "webhook_url": "企业微信 Webhook URL (可选)"
+        }
+      },
+      "devices": {
+        "title": "选择设备",
+        "description": "选择要监控的设备",
+        "data": {
+          "devices": "设备",
+          "update_interval": "更新间隔 (秒)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "连接萤石云失败",
+      "invalid_auth": "认证无效",
+      "no_devices": "您的账户中未发现设备",
+      "device_error": "获取设备时出错"
+    },
+    "abort": {
+      "already_configured": "萤石云已经配置过了"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "萤石云选项",
+        "description": "配置萤石云集成选项",
+        "data": {
+          "update_interval": "更新间隔 (秒)",
+          "webhook_url": "企业微信 Webhook URL"
+        }
+      }
+    }
+  }
+}

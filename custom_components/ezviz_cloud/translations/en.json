@@ -1,0 +1,50 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EZVIZ Cloud",
+        "description": "Set up EZVIZ Cloud integration",
+        "data": {
+          "app_key": "App Key",
+          "app_secret": "App Secret"
+        }
+      },
+      "webhook": {
+        "title": "WeCom Webhook Notification",
+        "description": "Configure a WeCom webhook URL to receive notifications when privacy status changes",
+        "data": {
+          "webhook_url": "WeCom Webhook URL (Optional)"
+        }
+      },
+      "devices": {
+        "title": "Select Devices",
+        "description": "Select the devices you want to monitor",
+        "data": {
+          "devices": "Devices",
+          "update_interval": "Update interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to EZVIZ Cloud",
+      "invalid_auth": "Invalid authentication",
+      "no_devices": "No devices found in your account",
+      "device_error": "Error retrieving devices"
+    },
+    "abort": {
+      "already_configured": "EZVIZ Cloud is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EZVIZ Cloud Options",
+        "description": "Configure EZVIZ Cloud integration options",
+        "data": {
+          "update_interval": "Update interval (seconds)",
+          "webhook_url": "WeCom Webhook URL"
+        }
+      }
+    }
+  }
+}

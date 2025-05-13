@@ -1,0 +1,93 @@
+"""Support for EZVIZ cameras."""
+import logging
+
+from homeassistant.components.camera import Camera
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from .const import DOMAIN, CONF_DEVICES
+
+_LOGGER = logging.getLogger(__name__)
+
+async def async_setup_entry(
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up EZVIZ cameras based on a config entry."""
+    ezviz_data = hass.data[DOMAIN][entry.entry_id]
+    client = ezviz_data["client"]
+    devices = ezviz_data["devices"]
+
+    # 获取配置的设备
+    configured_devices = entry.data.get(CONF_DEVICES, [])
+
+    cameras = []
+    for device_sn in configured_devices:
+        if device_sn in devices:
+            cameras.append(EzvizCamera(hass, entry.entry_id, device_sn))
+
+    async_add_entities(cameras, True)
+
+class EzvizCamera(Camera):
+    """An implementation of a EZVIZ camera."""
+
+    def __init__(self, hass, entry_id, device_sn):
+        """Initialize a EZVIZ camera."""
+        super().__init__()
+        self.hass = hass
+        self.entry_id = entry_id
+        self.device_sn = device_sn
+
+        self._client = hass.data[DOMAIN][entry_id]["client"]
+        self._attr_name = None
+        self._attr_unique_id = f"{device_sn}_camera"
+        self._attr_motion_detection_enabled = False
+        self._stream_source = None
+
+    @property
+    def device_info(self):
+        """Return device information about this EZVIZ camera."""
+        device_info = self.hass.data[DOMAIN][self.entry_id]["devices"].get(self.device_sn, {}).get("info", {})
+        device_name = device_info.get("device_name", self.device_sn)
+
+        return {
+            "identifiers": {(DOMAIN, self.device_sn)},
+            "name": device_name,
+            "manufacturer": "EZVIZ",
+            "model": device_info.get("device_type", "Camera"),
+            "sw_version": device_info.get("version", "Unknown"),
+        }
+
+    @property
+    def name(self):
+        """Return the name of this camera."""
+        device_info = self.hass.data[DOMAIN][self.entry_id]["devices"].get(self.device_sn, {}).get("info", {})
+        return device_info.get("device_name", self.device_sn)
+
+    async def async_camera_image(
+            self, width: int = None, height: int = None
+    ) -> bytes | None:
+        """Return a still image from the camera."""
+        try:
+            return await self.hass.async_add_executor_job(
+                self._client.get_camera_image, self.device_sn
+            )
+        except Exception as error:
+            _LOGGER.error("Failed to get camera image: %s", error)
+            return None
+
+    async def stream_source(self):
+        """Return the stream source."""
+        if self._stream_source is not None:
+            return self._stream_source
+
+        try:
+            self._stream_source = await self.hass.async_add_executor_job(
+                self._client.get_stream_url, self.device_sn
+            )
+            return self._stream_source
+        except Exception as error:
+            _LOGGER.error("Failed to get stream source: %s", error)
+            return None
