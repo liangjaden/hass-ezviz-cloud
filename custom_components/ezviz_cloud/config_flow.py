@@ -25,8 +25,8 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-# 确保类名与域名匹配，并且继承自ConfigFlow
-class EzvizCloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+@config_entries.HANDLERS.register(DOMAIN)
+class EzvizCloudConfigFlow(config_entries.ConfigFlow):
     """Handle a config flow for EZVIZ Cloud."""
 
     VERSION = 1
