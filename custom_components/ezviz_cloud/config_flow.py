@@ -24,6 +24,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for EZVIZ Cloud."""
 
