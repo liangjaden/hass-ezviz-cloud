@@ -7,6 +7,6 @@
   "documentation": "https://github.com/liangjaden/hass-ezviz-cloud",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/liangjaden/hass-ezviz-cloud/issues",
-  "requirements": ["pyEzvizApi>=0.2.0"],
-  "version": "0.2.0"
+  "requirements": ["pyEzvizApi>=1.0.0.9"],
+  "version": "0.0.1"
 }
