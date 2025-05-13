@@ -55,9 +55,10 @@ EN_TRANSLATIONS = {
             },
             "devices": {
                 "title": "Select Devices",
-                "description": "Select the devices you want to monitor",
+                "description": "Select the devices you want to monitor. You can leave this empty and configure it later.",
                 "data": {
-                    "devices": "Devices",
+                    "devices": "Devices (Optional)",
+                    "refresh": "Refresh device list",
                     "update_interval": "Update interval (seconds)"
                 }
             }
@@ -76,8 +77,10 @@ EN_TRANSLATIONS = {
         "step": {
             "init": {
                 "title": "EZVIZ Cloud Options",
-                "description": "Configure EZVIZ Cloud integration options",
+                "description": "Configure EZVIZ Cloud integration options. {refresh_tip}",
                 "data": {
+                    "devices": "Select devices to monitor",
+                    "refresh": "Refresh device list",
                     "update_interval": "Update interval (seconds)",
                     "webhook_url": "WeCom Webhook URL"
                 }
@@ -106,9 +109,10 @@ ZH_TRANSLATIONS = {
             },
             "devices": {
                 "title": "选择设备",
-                "description": "选择要监控的设备",
+                "description": "选择要监控的设备，您可以不选择任何设备，稍后再配置。{refresh_tip}",
                 "data": {
-                    "devices": "设备",
+                    "devices": "设备 (可选)",
+                    "refresh": "刷新设备列表",
                     "update_interval": "更新间隔 (秒)"
                 }
             }
@@ -127,8 +131,10 @@ ZH_TRANSLATIONS = {
         "step": {
             "init": {
                 "title": "萤石云选项",
-                "description": "配置萤石云集成选项",
+                "description": "配置萤石云集成选项。{refresh_tip}",
                 "data": {
+                    "devices": "选择要监控的设备",
+                    "refresh": "刷新设备列表",
                     "update_interval": "更新间隔 (秒)",
                     "webhook_url": "企业微信 Webhook URL"
                 }
@@ -218,7 +224,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         }
 
         # 定期更新设备状态
-        update_interval = entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+        update_interval = entry.options.get(CONF_UPDATE_INTERVAL, entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL))
 
         # 设置定期更新
         async def async_update_devices(now=None):
@@ -259,6 +265,12 @@ async def update_devices(hass, entry):
     ezviz_data = hass.data[DOMAIN][entry.entry_id]
     client = ezviz_data["client"]
     webhook_url = ezviz_data["webhook_url"]
+    configured_devices = entry.data.get(CONF_DEVICES, [])
+
+    # 如果没有配置任何设备，则跳过更新
+    if not configured_devices:
+        _LOGGER.debug("No devices configured, skipping update")
+        return
 
     try:
         # 获取设备列表
@@ -266,7 +278,8 @@ async def update_devices(hass, entry):
 
         for device in devices:
             device_sn = device.get("deviceSerial")
-            if device_sn:
+            # 只处理已配置的设备
+            if device_sn and device_sn in configured_devices:
                 # 获取设备隐私状态
                 try:
                     privacy_enabled = await client.get_privacy_status(device_sn)
@@ -301,6 +314,7 @@ async def update_devices(hass, entry):
                             EVENT_PRIVACY_CHANGED,
                             {
                                 "device_sn": device_sn,
+                                "device_name": device.get("deviceName", device_sn),
                                 "old_status": old_status,
                                 "new_status": privacy_status,
                             },
