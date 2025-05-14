@@ -143,33 +143,9 @@ ZH_TRANSLATIONS = {
     }
 }
 
-# 创建自定义图标
-EZVIZ_ICON_SVG = """
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-  <path d="M12,2 C17.523,2 22,6.477 22,12 C22,17.523 17.523,22 12,22 C6.477,22 2,17.523 2,12 C2,6.477 6.477,2 12,2 Z" fill="#0096D6"/>
-  <path d="M12,5 C13.105,5 14,5.895 14,7 C14,8.105 13.105,9 12,9 C10.895,9 10,8.105 10,7 C10,5.895 10.895,5 12,5 Z M12,10 C14.761,10 17,12.239 17,15 L17,16 C17,16.552 16.552,17 16,17 L8,17 C7.448,17 7,16.552 7,16 L7,15 C7,12.239 9.239,10 12,10 Z" fill="#FFFFFF"/>
-</svg>
-"""
-
-def create_icons(hass):
-    """Create custom icons for EZVIZ integration."""
-    # 确保自定义图标目录存在
-    icons_dir = Path(hass.config.path("www", DOMAIN, "icons"))
-    icons_dir.mkdir(parents=True, exist_ok=True)
-
-    # 写入图标文件
-    icon_path = icons_dir / "ezviz.svg"
-    if not icon_path.exists():
-        with open(icon_path, "w", encoding='utf-8') as icon_file:
-            icon_file.write(EZVIZ_ICON_SVG)
-        _LOGGER.debug("Created icon file at %s", icon_path)
-
 async def async_setup(hass: HomeAssistant, config: dict):
     """Set up the EZVIZ Cloud component."""
     hass.data[DOMAIN] = {}
-
-    # 创建图标
-    create_icons(hass)
 
     # 设置自定义卡片
     await async_setup_cards(hass)
@@ -358,15 +334,15 @@ async def send_webhook_notification(hass, webhook_url, device_sn, device_name, o
 
     session = async_get_clientsession(hass)
 
-    # 企业微信机器人消息格式
+    # 企业微信机器人消息格式 - 改为text类型
     message = {
-        "msgtype": "markdown",
-        "markdown": {
-            "content": f"### 萤石设备隐私状态变更通知\n"
-                       f"> **设备名称**: {device_name}\n"
-                       f"> **设备SN**: {device_sn}\n"
-                       f"> **状态变更**: {old_status} → {new_status}\n"
-                       f"> **时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        "msgtype": "text",
+        "text": {
+            "content": f"萤石设备隐私状态变更通知\n"
+                       f"设备名称: {device_name}\n"
+                       f"设备SN: {device_sn}\n"
+                       f"状态变更: {old_status} → {new_status}\n"
+                       f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         }
     }
 

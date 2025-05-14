@@ -213,3 +213,24 @@ class EzvizCloudChinaApi:
 
         data = await self._request(API_GET_LIVE_ADDRESS, "POST", params)
         return data.get("url", "")
+
+    async def get_rtsp_stream_url(self, device_serial: str, channel_no: int = 1, quality: int = 2) -> str:
+        """Get the RTSP stream URL specifically."""
+        await self.ensure_token_valid()
+
+        params = {
+            "deviceSerial": device_serial,
+            "channelNo": channel_no,
+            "protocol": "rtsp",
+            "quality": quality,    # 1: HD, 2: SD, etc.
+            "expireTime": 86400    # URL validity in seconds (24 hours)
+        }
+
+        try:
+            data = await self._request(API_GET_LIVE_ADDRESS, "POST", params)
+            rtsp_url = data.get("url", "")
+            _LOGGER.debug(f"Got RTSP URL for device {device_serial}: {rtsp_url}")
+            return rtsp_url
+        except EzvizCloudChinaApiError as err:
+            _LOGGER.error(f"Failed to get RTSP URL: {err}")
+            return ""

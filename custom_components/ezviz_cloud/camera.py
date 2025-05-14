@@ -52,6 +52,8 @@ class EzvizCamera(Camera):
         self._attr_unique_id = f"{device_sn}_camera"
         self._attr_motion_detection_enabled = False
         self._stream_source = None
+        self._rtsp_source = None
+        self._last_image = None
 
         # 支持流式功能
         self._attr_supported_features = CameraEntityFeature.STREAM
@@ -83,23 +85,36 @@ class EzvizCamera(Camera):
         """Return a still image from the camera."""
         try:
             # 使用中国API获取图像
-            return await self._client.get_device_capture(self.device_sn)
+            self._last_image = await self._client.get_device_capture(self.device_sn)
+            return self._last_image
         except EzvizCloudChinaApiError as error:
             _LOGGER.error("Failed to get camera image: %s", error)
-            return None
+            return self._last_image  # 返回上一次成功的图像，如果有的话
         except Exception as ex:
             _LOGGER.error("Unexpected error getting camera image: %s", ex)
-            return None
+            return self._last_image  # 返回上一次成功的图像，如果有的话
 
     async def async_stream_source(self):
         """Return the stream source."""
-        if self._stream_source is not None:
-            return self._stream_source
+        # 尝试获取RTSP流URL
+        if not self._rtsp_source:
+            try:
+                self._rtsp_source = await self._client.get_rtsp_stream_url(self.device_sn)
+                if self._rtsp_source:
+                    _LOGGER.info(f"Using RTSP stream for device {self.device_sn}: {self._rtsp_source}")
+                    return self._rtsp_source
+            except EzvizCloudChinaApiError as error:
+                _LOGGER.warning(f"Failed to get RTSP stream, falling back to default stream: {error}")
 
-        try:
-            # 使用中国API获取流地址
-            self._stream_source = await self._client.get_live_stream_url(self.device_sn)
-            return self._stream_source
-        except EzvizCloudChinaApiError as error:
-            _LOGGER.error("Failed to get stream source: %s", error)
-            return None
+        # 如果RTSP不可用，尝试获取默认流
+        if not self._stream_source:
+            try:
+                self._stream_source = await self._client.get_live_stream_url(self.device_sn)
+                _LOGGER.info(f"Using default stream for device {self.device_sn}: {self._stream_source}")
+                return self._stream_source
+            except EzvizCloudChinaApiError as error:
+                _LOGGER.error(f"Failed to get any stream source: {error}")
+                return None
+
+        # 如果已经有stream_source，直接返回
+        return self._stream_source if not self._rtsp_source else self._rtsp_source

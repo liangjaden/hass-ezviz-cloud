@@ -1,12 +1,13 @@
 {
   "domain": "ezviz_cloud",
   "name": "EZVIZ Cloud",
-  "documentation": "https://github.com/yourusername/hass-ezviz-cloud",
-  "issue_tracker": "https://github.com/yourusername/hass-ezviz-cloud/issues",
+  "documentation": "https://github.com/liangjaden/hass-ezviz-cloud",
+  "issue_tracker": "https://github.com/liangjaden/hass-ezviz-cloud/issues",
   "dependencies": [],
   "codeowners": ["@jadenliang"],
-  "requirements": ["pyezviz==0.2.0.3"],
+  "requirements": [],
   "config_flow": true,
   "iot_class": "cloud_polling",
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "icon": "mdi:cctv"
 }

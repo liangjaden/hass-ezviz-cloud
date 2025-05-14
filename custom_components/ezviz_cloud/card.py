@@ -75,95 +75,164 @@ async def async_setup_cards(hass: HomeAssistant):
 # 自定义卡片的JavaScript代码
 EZVIZ_CAMERA_CARD_JS = """
 class EzvizCameraCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+    this.content = false;
+    this._initialized = false;
+    this._updateInterval = null;
+  }
+
   set hass(hass) {
+    this._hass = hass;
     if (!this.content) {
-      this.innerHTML = `
-        <ha-card>
-          <div class="card-header"></div>
-          <div class="card-content">
-            <div class="camera-wrapper">
-              <img class="camera-image" />
-            </div>
-            <div class="controls">
-              <ha-icon-button class="privacy-toggle" icon="mdi:eye"></ha-icon-button>
-              <span class="privacy-status"></span>
-            </div>
-          </div>
-          <style>
-            .camera-wrapper {
-              position: relative;
-              width: 100%;
-              height: 0;
-              padding-bottom: 56.25%; /* 16:9 宽高比 */
-              overflow: hidden;
-              margin-bottom: 16px;
-              border-radius: 4px;
-            }
-            .camera-image {
-              position: absolute;
-              top: 0;
-              left: 0;
-              width: 100%;
-              height: 100%;
-              object-fit: cover;
-            }
-            .controls {
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-            }
-            .privacy-status {
-              font-size: 14px;
-              color: var(--secondary-text-color);
-            }
-            .privacy-on {
-              color: var(--error-color);
-            }
-            .privacy-off {
-              color: var(--success-color);
-            }
-          </style>
-        </ha-card>
-      `;
-      this.content = true;
-      
-      this.cardHeader = this.querySelector('.card-header');
-      this.cameraImage = this.querySelector('.camera-image');
-      this.privacyToggle = this.querySelector('.privacy-toggle');
-      this.privacyStatus = this.querySelector('.privacy-status');
-      
-      this.privacyToggle.addEventListener('click', () => {
-        const entityId = this.config.switch_entity;
-        const state = this.hass.states[entityId];
-        const isOn = state.state === 'on';
-        
-        hass.callService('switch', isOn ? 'turn_off' : 'turn_on', {
-          entity_id: entityId
-        });
-      });
+      this.initialSetup();
     }
     
-    const config = this.config;
+    this.updateCard();
+  }
+  
+  initialSetup() {
+    this.shadowRoot.innerHTML = `
+      <ha-card>
+        <div class="card-header"></div>
+        <div class="card-content">
+          <div class="camera-wrapper">
+            <img class="camera-image" />
+            <div class="camera-loading"><ha-circular-progress active></ha-circular-progress></div>
+          </div>
+          <div class="controls">
+            <ha-icon-button class="privacy-toggle"></ha-icon-button>
+            <span class="privacy-status"></span>
+          </div>
+        </div>
+        <style>
+          ha-card {
+            position: relative;
+            overflow: hidden;
+            box-sizing: border-box;
+          }
+          .card-header {
+            font-size: 1.2em;
+            font-weight: 500;
+            padding: 16px 16px 0;
+            color: var(--primary-text-color);
+          }
+          .card-content {
+            padding: 16px;
+          }
+          .camera-wrapper {
+            position: relative;
+            width: 100%;
+            height: 0;
+            padding-bottom: 56.25%; /* 16:9 宽高比 */
+            overflow: hidden;
+            margin-bottom: 16px;
+            border-radius: 4px;
+            background-color: #202020;
+          }
+          .camera-image {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            cursor: pointer;
+          }
+          .camera-loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(0, 0, 0, 0.6);
+          }
+          .camera-loading.hidden {
+            display: none;
+          }
+          .controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+          }
+          .privacy-status {
+            font-size: 14px;
+            color: var(--secondary-text-color);
+          }
+          .privacy-on {
+            color: var(--error-color);
+          }
+          .privacy-off {
+            color: var(--success-color);
+          }
+        </style>
+      </ha-card>
+    `;
     
-    // Set card header
-    if (config.title) {
-      this.cardHeader.textContent = config.title;
+    this.content = true;
+    
+    this.cardHeader = this.shadowRoot.querySelector('.card-header');
+    this.cameraImage = this.shadowRoot.querySelector('.camera-image');
+    this.cameraLoading = this.shadowRoot.querySelector('.camera-loading');
+    this.privacyToggle = this.shadowRoot.querySelector('.privacy-toggle');
+    this.privacyStatus = this.shadowRoot.querySelector('.privacy-status');
+    
+    // 点击切换隐私模式
+    this.privacyToggle.addEventListener('click', () => {
+      if (!this._hass || !this.config) return;
+      
+      const entityId = this.config.switch_entity;
+      const state = this._hass.states[entityId];
+      const isOn = state.state === 'on';
+      
+      this._hass.callService('switch', isOn ? 'turn_off' : 'turn_on', {
+        entity_id: entityId
+      });
+    });
+    
+    // 点击图像打开摄像头流
+    this.cameraImage.addEventListener('click', () => {
+      if (!this._hass || !this.config) return;
+      
+      this._showCameraDialog();
+    });
+  }
+  
+  updateCard() {
+    if (!this._hass || !this.config) return;
+    
+    // 设置卡片标题
+    if (this.config.title) {
+      this.cardHeader.textContent = this.config.title;
+    } else if (this.config.camera_entity) {
+      const cameraState = this._hass.states[this.config.camera_entity];
+      this.cardHeader.textContent = cameraState?.attributes?.friendly_name || '萤石摄像头';
     } else {
       this.cardHeader.textContent = '萤石摄像头';
     }
     
-    // Update camera image
-    if (config.camera_entity) {
-      const cameraState = this.hass.states[config.camera_entity];
+    // 更新摄像头图像
+    if (this.config.camera_entity) {
+      const cameraState = this._hass.states[this.config.camera_entity];
       if (cameraState) {
-        this.cameraImage.src = `/api/camera_proxy/${config.camera_entity}?token=${cameraState.attributes.access_token || ''}`;
-        this.cameraImage.alt = cameraState.attributes.friendly_name || '摄像头';
+        // 如果还没有初始化，设置自动刷新
+        if (!this._initialized) {
+          this._setupAutoRefresh();
+          this._initialized = true;
+        }
+        
+        // 设置图像源
+        this._updateCameraImage();
       }
     }
     
-    // Update privacy status
-    if (config.switch_entity) {
-      const switchState = this.hass.states[config.switch_entity];
+    // 更新隐私状态
+    if (this.config.switch_entity) {
+      const switchState = this._hass.states[this.config.switch_entity];
       if (switchState) {
         const isOn = switchState.state === 'on';
         this.privacyToggle.icon = isOn ? 'mdi:eye-off' : 'mdi:eye';
@@ -171,6 +240,59 @@ class EzvizCameraCard extends HTMLElement {
         this.privacyStatus.className = 'privacy-status ' + (isOn ? 'privacy-on' : 'privacy-off');
       }
     }
+  }
+  
+  _setupAutoRefresh() {
+    // 清除可能存在的旧定时器
+    if (this._updateInterval) {
+      clearInterval(this._updateInterval);
+    }
+    
+    // 设置新的定时器，每30秒更新一次图像
+    this._updateInterval = setInterval(() => {
+      this._updateCameraImage();
+    }, 30000);
+  }
+  
+  _updateCameraImage() {
+    if (!this._hass || !this.config || !this.config.camera_entity) return;
+    
+    const cameraState = this._hass.states[this.config.camera_entity];
+    if (!cameraState) return;
+    
+    // 显示加载动画
+    this.cameraLoading.classList.remove('hidden');
+    
+    // 构建带有时间戳的URL以避免缓存
+    const timestamp = new Date().getTime();
+    const entityId = this.config.camera_entity;
+    const accessToken = cameraState.attributes.access_token || '';
+    
+    // 设置图像URL
+    const imageUrl = `/api/camera_proxy/${entityId}?token=${accessToken}&ts=${timestamp}`;
+    
+    // 创建新图像对象以确保加载完成后再显示
+    const newImage = new Image();
+    newImage.onload = () => {
+      this.cameraImage.src = imageUrl;
+      this.cameraLoading.classList.add('hidden');
+    };
+    newImage.onerror = () => {
+      this.cameraLoading.classList.add('hidden');
+      console.error('Failed to load camera image');
+    };
+    newImage.src = imageUrl;
+  }
+  
+  _showCameraDialog() {
+    const event = new Event('hass-more-info', {
+      bubbles: true,
+      composed: true,
+    });
+    event.detail = {
+      entityId: this.config.camera_entity,
+    };
+    this.dispatchEvent(event);
   }
   
   setConfig(config) {
@@ -188,18 +310,19 @@ class EzvizCameraCard extends HTMLElement {
     return 4;
   }
 
+  disconnectedCallback() {
+    // 清除定时器
+    if (this._updateInterval) {
+      clearInterval(this._updateInterval);
+      this._updateInterval = null;
+    }
+  }
+  
   static getStubConfig() {
     return {
       camera_entity: "",
       switch_entity: "",
       title: "萤石摄像头"
-    };
-  }
-  
-  static get properties() {
-    return {
-      hass: {},
-      config: {}
     };
   }
 }
