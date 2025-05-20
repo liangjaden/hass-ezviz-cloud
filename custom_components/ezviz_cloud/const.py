@@ -11,6 +11,13 @@ CONF_UPDATE_INTERVAL = "update_interval"
 
 DEFAULT_UPDATE_INTERVAL = 30
 
+# HomeKit支持标志，设为True启用HomeKit增强功能
+HOMEKIT_SUPPORT_ENABLED = True
+
+# API超时设置
+API_TIMEOUT = 10  # 秒
+API_RETRY_ATTEMPTS = 3  # 最大重试次数
+
 # 隐私状态常量
 PRIVACY_ON = "on"
 PRIVACY_OFF = "off"
