@@ -28,26 +28,154 @@ from .const import (
     PRIVACY_OFF,
     HOMEKIT_SUPPORT_ENABLED,
 )
+from .card import async_setup_cards  # 确保导入卡片设置函数
 
 _LOGGER = logging.getLogger(__name__)
 
 # 使用Platform枚举进行平台定义
 PLATFORMS = [Platform.CAMERA, Platform.SWITCH, Platform.BINARY_SENSOR]
 
-# 翻译文件内容省略...
+# 翻译文件内容
+EN_TRANSLATIONS = {
+    "config": {
+        "step": {
+            "user": {
+                "title": "EZVIZ Cloud (China)",
+                "description": "Set up EZVIZ Cloud integration for the Chinese market",
+                "data": {
+                    "app_key": "App Key",
+                    "app_secret": "App Secret"
+                }
+            },
+            "webhook": {
+                "title": "WeCom Webhook Notification",
+                "description": "Configure a WeCom webhook URL to receive notifications when privacy status changes",
+                "data": {
+                    "webhook_url": "WeCom Webhook URL (Optional)"
+                }
+            },
+            "devices": {
+                "title": "Select Devices",
+                "description": "Select the devices you want to monitor. You can leave this empty and configure it later.",
+                "data": {
+                    "devices": "Devices (Optional)",
+                    "refresh": "Refresh device list",
+                    "update_interval": "Update interval (seconds)"
+                }
+            }
+        },
+        "error": {
+            "cannot_connect": "Failed to connect to EZVIZ Cloud",
+            "invalid_auth": "Invalid authentication",
+            "no_devices": "No devices found in your account",
+            "device_error": "Error retrieving devices"
+        },
+        "abort": {
+            "already_configured": "EZVIZ Cloud is already configured"
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "EZVIZ Cloud Options",
+                "description": "Configure EZVIZ Cloud integration options. {refresh_tip}",
+                "data": {
+                    "devices": "Select devices to monitor",
+                    "refresh": "Refresh device list",
+                    "update_interval": "Update interval (seconds)",
+                    "webhook_url": "WeCom Webhook URL"
+                }
+            }
+        }
+    }
+}
+
+ZH_TRANSLATIONS = {
+    "config": {
+        "step": {
+            "user": {
+                "title": "萤石云",
+                "description": "设置萤石云集成",
+                "data": {
+                    "app_key": "App Key",
+                    "app_secret": "App Secret"
+                }
+            },
+            "webhook": {
+                "title": "企业微信通知",
+                "description": "配置企业微信机器人 Webhook URL 以接收隐私状态变更通知",
+                "data": {
+                    "webhook_url": "企业微信 Webhook URL (可选)"
+                }
+            },
+            "devices": {
+                "title": "选择设备",
+                "description": "选择要监控的设备，您可以不选择任何设备，稍后再配置。{refresh_tip}",
+                "data": {
+                    "devices": "设备 (可选)",
+                    "refresh": "刷新设备列表",
+                    "update_interval": "更新间隔 (秒)"
+                }
+            }
+        },
+        "error": {
+            "cannot_connect": "连接萤石云失败",
+            "invalid_auth": "认证无效",
+            "no_devices": "您的账户中未发现设备",
+            "device_error": "获取设备时出错"
+        },
+        "abort": {
+            "already_configured": "萤石云已经配置过了"
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "萤石云选项",
+                "description": "配置萤石云集成选项。{refresh_tip}",
+                "data": {
+                    "devices": "选择要监控的设备",
+                    "refresh": "刷新设备列表",
+                    "update_interval": "更新间隔 (秒)",
+                    "webhook_url": "企业微信 Webhook URL"
+                }
+            }
+        }
+    }
+}
 
 async def async_setup(hass: HomeAssistant, config: dict):
     """Set up the EZVIZ Cloud component."""
     hass.data[DOMAIN] = {}
 
     # 设置自定义卡片
-    await async_setup_cards(hass)
+    try:
+        await async_setup_cards(hass)
+    except Exception as e:
+        _LOGGER.warning(f"Error setting up custom cards: {e}")
+        # 继续安装组件，即使卡片设置失败
 
     # 创建翻译文件目录
     translations_dir = Path(hass.config.path("custom_components", DOMAIN, "translations"))
     translations_dir.mkdir(parents=True, exist_ok=True)
 
-    # 省略部分代码...
+    # 写入英文翻译文件
+    en_json_path = translations_dir / "en.json"
+    if not en_json_path.exists():
+        with open(en_json_path, "w", encoding='utf-8') as f:
+            json.dump(EN_TRANSLATIONS, f, indent=4, ensure_ascii=False)
+
+    # 写入中文翻译文件
+    zh_json_path = translations_dir / "zh-Hans.json"
+    if not zh_json_path.exists():
+        with open(zh_json_path, "w", encoding='utf-8') as f:
+            json.dump(ZH_TRANSLATIONS, f, indent=4, ensure_ascii=False)
+
+    # 写入strings.json文件
+    strings_json_path = Path(hass.config.path("custom_components", DOMAIN, "strings.json"))
+    if not strings_json_path.exists():
+        with open(strings_json_path, "w", encoding='utf-8') as f:
+            json.dump(EN_TRANSLATIONS, f, indent=4, ensure_ascii=False)
 
     # 注册事件监听，用于 HomeKit 集成
     if HOMEKIT_SUPPORT_ENABLED:
