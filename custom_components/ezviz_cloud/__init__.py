@@ -28,7 +28,6 @@ from .const import (
     PRIVACY_OFF,
     HOMEKIT_SUPPORT_ENABLED,
 )
-from .card import async_setup_cards  # 确保导入卡片设置函数
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -148,12 +147,8 @@ async def async_setup(hass: HomeAssistant, config: dict):
     """Set up the EZVIZ Cloud component."""
     hass.data[DOMAIN] = {}
 
-    # 设置自定义卡片
-    try:
-        await async_setup_cards(hass)
-    except Exception as e:
-        _LOGGER.warning(f"Error setting up custom cards: {e}")
-        # 继续安装组件，即使卡片设置失败
+    # 完全移除卡片设置，使用原始的卡片设置功能
+    _LOGGER.debug("HomeKit optimizations for EZVIZ Cloud integration are enabled")
 
     # 创建翻译文件目录
     translations_dir = Path(hass.config.path("custom_components", DOMAIN, "translations"))
