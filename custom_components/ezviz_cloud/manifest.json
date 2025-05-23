@@ -8,6 +8,13 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/liangjaden/hass-ezviz-cloud/issues",
   "requirements": [],
-  "version": "0.1.0",
-  "icon": "mdi:cctv"
+  "version": "0.2.0",
+  "icon": "mdi:cctv",
+  "homekit": {
+    "models": ["EZVIZ Camera"],
+    "manufacturer": "萤石"
+  },
+  "integration_type": "device",
+  "quality_scale": "silver",
+  "after_dependencies": ["homekit"]
 }

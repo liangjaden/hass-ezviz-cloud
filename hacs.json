@@ -1,13 +1,20 @@
 {
   "domain": "ezviz_cloud",
-  "name": "EZVIZ Cloud",
-  "documentation": "https://github.com/liangjaden/hass-ezviz-cloud",
-  "issue_tracker": "https://github.com/liangjaden/hass-ezviz-cloud/issues",
-  "dependencies": [],
+  "name": "萤石云",
   "codeowners": ["@jadenliang"],
-  "requirements": [],
   "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/liangjaden/hass-ezviz-cloud",
   "iot_class": "cloud_polling",
-  "version": "0.1.0",
-  "icon": "mdi:cctv"
+  "issue_tracker": "https://github.com/liangjaden/hass-ezviz-cloud/issues",
+  "requirements": [],
+  "version": "0.2.0",
+  "icon": "mdi:cctv",
+  "homekit": {
+    "models": ["EZVIZ Camera"],
+    "manufacturer": "萤石"
+  },
+  "integration_type": "device",
+  "quality_scale": "silver",
+  "after_dependencies": ["homekit"]
 }

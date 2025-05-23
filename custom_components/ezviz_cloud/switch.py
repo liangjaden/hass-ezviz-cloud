@@ -1,12 +1,14 @@
-"""Support for EZVIZ Cloud switches."""
+"""Support for EZVIZ Cloud switches with HomeKit Bridge compatibility."""
 import logging
 import asyncio
+from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN, CONF_DEVICES, PRIVACY_ON, PRIVACY_OFF
 from .api import EzvizCloudChinaApiError
@@ -50,10 +52,11 @@ async def async_setup_entry(
 
 
 class EzvizPrivacySwitch(SwitchEntity):
-    """Representation of an EZVIZ privacy switch."""
+    """Representation of an EZVIZ privacy switch with HomeKit Bridge compatibility."""
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
+    _attr_should_poll = False  # 禁用轮询，依赖事件更新
 
     def __init__(self, hass, entry_id, device_sn):
         """Initialize the EZVIZ privacy switch."""
@@ -66,9 +69,16 @@ class EzvizPrivacySwitch(SwitchEntity):
         self._attr_unique_id = f"{device_sn}_privacy_mode"
         self._attr_is_on = False
         self._attr_icon = "mdi:eye-off" if self._attr_is_on else "mdi:eye"
-        self._state_is_updating = False  # 状态更新锁
-        self._command_queue = asyncio.Queue()  # 用于排队命令
-        self._background_task = None  # 后台任务引用
+
+        # HomeKit 兼容性增强
+        self._attr_available = True
+        self._is_turning_on = False
+        self._is_turning_off = False
+        self._last_command_time = 0
+
+        # 命令处理队列
+        self._command_lock = asyncio.Lock()
+        self._pending_state = None  # 等待确认的状态
 
     @property
     def available(self) -> bool:
@@ -79,7 +89,7 @@ class EzvizPrivacySwitch(SwitchEntity):
         device_info = device_data.get("info", {})
 
         # 检查设备状态
-        return bool(device_info)
+        return bool(device_info) and self._attr_available
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -98,19 +108,43 @@ class EzvizPrivacySwitch(SwitchEntity):
             sw_version=sw_version,
         )
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes for HomeKit compatibility."""
+        return {
+            "device_sn": self.device_sn,
+            "last_update": self._last_command_time,
+            "is_privacy_mode": self._attr_is_on,
+        }
+
+    @callback
     def update_from_privacy_status(self, privacy_status):
-        """直接从隐私状态更新实体状态。"""
+        """直接从隐私状态更新实体状态，确保HomeKit同步。"""
         is_on = privacy_status == PRIVACY_ON
+
+        # 如果状态已经匹配，并且没有等待中的状态，跳过更新
+        if self._attr_is_on == is_on and self._pending_state is None:
+            return
+
+        # 更新状态
         if self._attr_is_on != is_on:
             self._attr_is_on = is_on
             self._attr_icon = "mdi:eye-off" if is_on else "mdi:eye"
+
+            # 清除等待状态（如果匹配）
+            if self._pending_state == privacy_status:
+                self._pending_state = None
+                self._is_turning_on = False
+                self._is_turning_off = False
+
+            # 立即写入状态以确保HomeKit获得响应
             self.async_write_ha_state()
-            _LOGGER.debug("直接更新实体状态 %s 到 %s", self.device_sn, privacy_status)
+            _LOGGER.debug("Updated switch %s state to %s", self.device_sn, privacy_status)
 
     async def async_update(self):
-        """Update the switch state."""
-        # 如果有命令正在处理，跳过常规更新
-        if self._state_is_updating:
+        """Update the switch state from stored data."""
+        # 只有在没有等待命令时才从存储数据更新
+        if self._is_turning_on or self._is_turning_off:
             return
 
         devices_data = self.hass.data[DOMAIN][self.entry_id]["devices"]
@@ -124,126 +158,162 @@ class EzvizPrivacySwitch(SwitchEntity):
             self._attr_is_on = is_on
             self._attr_icon = "mdi:eye-off" if is_on else "mdi:eye"
 
-    async def async_added_to_hass(self):
-        """当实体被添加到Home Assistant时调用。"""
-        # 启动后台任务处理开关命令
-        self._background_task = self.hass.async_create_task(self._process_command_queue())
+    async def async_turn_on(self, **kwargs) -> None:
+        """Turn the privacy mode on with HomeKit optimized response."""
+        if self._is_turning_on:
+            return  # 防止重复命令
 
-    async def async_will_remove_from_hass(self):
-        """当实体将从Home Assistant移除时调用。"""
-        # 清理后台任务
-        if self._background_task:
-            self._background_task.cancel()
+        async with self._command_lock:
             try:
-                await self._background_task
-            except asyncio.CancelledError:
-                pass
+                self._is_turning_on = True
+                self._pending_state = PRIVACY_ON
 
-    async def _process_command_queue(self):
-        """处理后台命令队列。"""
-        while True:
-            try:
-                # 从队列获取命令
-                command, new_state = await self._command_queue.get()
+                # 立即更新UI状态以提供快速反馈给HomeKit
+                self._attr_is_on = True
+                self._attr_icon = "mdi:eye-off"
+                self.async_write_ha_state()
 
-                # 设置状态更新锁
-                self._state_is_updating = True
+                # 执行实际的API调用
+                success = await self._execute_privacy_command(True)
 
-                try:
-                    # 执行命令
-                    if command == "turn_on":
-                        await self._do_turn_on()
-                    elif command == "turn_off":
-                        await self._do_turn_off()
+                if not success:
+                    # 如果命令失败，恢复原状态
+                    _LOGGER.error("Failed to enable privacy mode for device %s", self.device_sn)
+                    await self._revert_state()
+                    raise HomeAssistantError(f"Failed to enable privacy mode for device {self.device_sn}")
+                else:
+                    # 成功后记录时间
+                    import time
+                    self._last_command_time = time.time()
 
-                    # 验证状态变化
-                    await self._verify_state_change(new_state)
-                finally:
-                    # 无论成功或失败，释放锁
-                    self._state_is_updating = False
-                    self._command_queue.task_done()
-            except asyncio.CancelledError:
-                # 任务被取消
-                break
             except Exception as error:
-                _LOGGER.exception("Error processing command: %s", error)
-                self._state_is_updating = False
-                self._command_queue.task_done()
+                await self._revert_state()
+                _LOGGER.error("Error turning on privacy mode: %s", error)
+                raise HomeAssistantError(f"Error turning on privacy mode: {error}")
+            finally:
+                self._is_turning_on = False
 
-    async def _verify_state_change(self, expected_state):
-        """验证状态变更是否成功。"""
-        MAX_RETRIES = 3
-        RETRY_DELAY = 1  # 秒
+    async def async_turn_off(self, **kwargs) -> None:
+        """Turn the privacy mode off with HomeKit optimized response."""
+        if self._is_turning_off:
+            return  # 防止重复命令
 
-        for attempt in range(MAX_RETRIES):
+        async with self._command_lock:
             try:
-                # 主动获取当前状态而不是依赖缓存
-                current_status = await self._client.get_privacy_status(self.device_sn)
-                actual_state = PRIVACY_ON if current_status else PRIVACY_OFF
+                self._is_turning_off = True
+                self._pending_state = PRIVACY_OFF
 
-                if actual_state == expected_state:
-                    # 状态已更新为预期值
-                    _LOGGER.debug("状态验证成功: %s 在尝试 %s/%s", self.device_sn, attempt + 1, MAX_RETRIES)
-                    # 更新数据存储
-                    devices_data = self.hass.data[DOMAIN][self.entry_id]["devices"]
-                    if self.device_sn in devices_data:
-                        devices_data[self.device_sn]["privacy_status"] = expected_state
-                    return True
+                # 立即更新UI状态以提供快速反馈给HomeKit
+                self._attr_is_on = False
+                self._attr_icon = "mdi:eye"
+                self.async_write_ha_state()
 
-                _LOGGER.debug(
-                    "状态验证不匹配: %s 预期 %s, 实际 %s, 尝试 %s/%s",
-                    self.device_sn, expected_state, actual_state, attempt + 1, MAX_RETRIES
-                )
+                # 执行实际的API调用
+                success = await self._execute_privacy_command(False)
 
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(RETRY_DELAY)
+                if not success:
+                    # 如果命令失败，恢复原状态
+                    _LOGGER.error("Failed to disable privacy mode for device %s", self.device_sn)
+                    await self._revert_state()
+                    raise HomeAssistantError(f"Failed to disable privacy mode for device {self.device_sn}")
+                else:
+                    # 成功后记录时间
+                    import time
+                    self._last_command_time = time.time()
+
             except Exception as error:
-                _LOGGER.error("验证状态时出错: %s", error)
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(RETRY_DELAY)
+                await self._revert_state()
+                _LOGGER.error("Error turning off privacy mode: %s", error)
+                raise HomeAssistantError(f"Error turning off privacy mode: {error}")
+            finally:
+                self._is_turning_off = False
 
-        # 所有尝试都失败
-        _LOGGER.warning("无法验证设备 %s 的状态更新", self.device_sn)
+    async def _execute_privacy_command(self, enable: bool, max_retries: int = 2) -> bool:
+        """Execute the privacy command with retries and verification."""
+        for attempt in range(max_retries + 1):
+            try:
+                # 执行API命令
+                success = await self._client.set_privacy(self.device_sn, enable)
+
+                if success:
+                    # 短暂延迟后验证状态
+                    await asyncio.sleep(0.5)
+
+                    # 验证状态是否正确设置
+                    try:
+                        current_status = await self._client.get_privacy_status(self.device_sn)
+                        expected_status = enable
+
+                        if current_status == expected_status:
+                            _LOGGER.debug("Privacy command successful for %s: %s", self.device_sn, enable)
+                            return True
+                        else:
+                            _LOGGER.warning("Privacy command status mismatch for %s: expected %s, got %s",
+                                            self.device_sn, expected_status, current_status)
+                    except Exception as verify_error:
+                        _LOGGER.warning("Failed to verify privacy status for %s: %s", self.device_sn, verify_error)
+                        # 如果验证失败但命令成功，仍然认为操作成功
+                        return True
+
+                # 如果不是最后一次尝试，等待后重试
+                if attempt < max_retries:
+                    wait_time = (attempt + 1) * 1.0  # 递增等待时间
+                    _LOGGER.warning("Privacy command failed for %s (attempt %d/%d), retrying in %.1fs",
+                                    self.device_sn, attempt + 1, max_retries + 1, wait_time)
+                    await asyncio.sleep(wait_time)
+
+            except EzvizCloudChinaApiError as api_error:
+                if attempt < max_retries:
+                    wait_time = (attempt + 1) * 1.0
+                    _LOGGER.warning("API error for %s (attempt %d/%d): %s, retrying in %.1fs",
+                                    self.device_sn, attempt + 1, max_retries + 1, api_error, wait_time)
+                    await asyncio.sleep(wait_time)
+                else:
+                    _LOGGER.error("API error for %s after %d attempts: %s", self.device_sn, max_retries + 1, api_error)
+                    return False
+            except Exception as error:
+                _LOGGER.error("Unexpected error executing privacy command for %s: %s", self.device_sn, error)
+                return False
+
+        _LOGGER.error("Privacy command failed for %s after %d attempts", self.device_sn, max_retries + 1)
         return False
 
-    async def async_turn_on(self, **kwargs):
-        """Turn the privacy mode on."""
-        # HomeKit需要立即返回以避免超时，所以我们立即更新状态
-        self._attr_is_on = True
-        self._attr_icon = "mdi:eye-off"
-        self.async_write_ha_state()
-
-        # 将实际命令放入队列异步处理
-        await self._command_queue.put(("turn_on", PRIVACY_ON))
-
-    async def _do_turn_on(self):
-        """实际执行打开隐私模式的命令。"""
-        _LOGGER.debug("执行打开隐私模式: %s", self.device_sn)
+    async def _revert_state(self):
+        """Revert the entity state to match the actual device state."""
         try:
-            success = await self._client.set_privacy(self.device_sn, True)
-            if not success:
-                _LOGGER.error("无法启用隐私模式: %s", self.device_sn)
-                # 在验证阶段会处理状态还原
-        except EzvizCloudChinaApiError as error:
-            _LOGGER.error("启用隐私模式时出错: %s", error)
+            # 获取当前实际状态
+            devices_data = self.hass.data[DOMAIN][self.entry_id]["devices"]
+            device_data = devices_data.get(self.device_sn, {})
+            actual_privacy_status = device_data.get("privacy_status", PRIVACY_OFF)
 
-    async def async_turn_off(self, **kwargs):
-        """Turn the privacy mode off."""
-        # HomeKit需要立即返回以避免超时，所以我们立即更新状态
-        self._attr_is_on = False
-        self._attr_icon = "mdi:eye"
-        self.async_write_ha_state()
+            # 恢复到实际状态
+            actual_is_on = actual_privacy_status == PRIVACY_ON
+            self._attr_is_on = actual_is_on
+            self._attr_icon = "mdi:eye-off" if actual_is_on else "mdi:eye"
+            self._pending_state = None
 
-        # 将实际命令放入队列异步处理
-        await self._command_queue.put(("turn_off", PRIVACY_OFF))
+            # 写入恢复的状态
+            self.async_write_ha_state()
+            _LOGGER.debug("Reverted state for %s to actual state: %s", self.device_sn, actual_privacy_status)
 
-    async def _do_turn_off(self):
-        """实际执行关闭隐私模式的命令。"""
-        _LOGGER.debug("执行关闭隐私模式: %s", self.device_sn)
-        try:
-            success = await self._client.set_privacy(self.device_sn, False)
-            if not success:
-                _LOGGER.error("无法禁用隐私模式: %s", self.device_sn)
-                # 在验证阶段会处理状态还原
-        except EzvizCloudChinaApiError as error:
-            _LOGGER.error("禁用隐私模式时出错: %s", error)
+        except Exception as error:
+            _LOGGER.error("Error reverting state for %s: %s", self.device_sn, error)
+
+    async def async_added_to_hass(self) -> None:
+        """Called when entity is added to Home Assistant."""
+        # 确保实体在添加时是可用的
+        self._attr_available = True
+
+        # 获取初始状态
+        await self.async_update()
+
+        _LOGGER.debug("EZVIZ privacy switch %s added to Home Assistant", self.device_sn)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Called when entity will be removed from Home Assistant."""
+        # 清理任何待处理的操作
+        self._pending_state = None
+        self._is_turning_on = False
+        self._is_turning_off = False
+
+        _LOGGER.debug("EZVIZ privacy switch %s will be removed from Home Assistant", self.device_sn)
